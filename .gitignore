@@ -1,0 +1,37 @@
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test artifacts
+*.tmp
+*.bak
+*.log
+
+# Node / Python build artifacts (in case lib uses them)
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local secrets — never commit
+.env
+.env.local
+*.key
+*.pem
+secrets/
+
+# Runtime catalog and replacement backups
+installed-skills-index.json
+installed-skills-index.json.tmp-*
+.backups/
+
+# Temporary local patch helpers
+_patch_ps.py

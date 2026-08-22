@@ -1,0 +1,86 @@
+$ErrorActionPreference = 'Stop'
+
+$root = Split-Path -Parent $PSScriptRoot
+$installer = Join-Path $root 'lib/install.ps1'
+$fixture = Join-Path $PSScriptRoot 'fixtures/minimal-skill'
+$sandbox = Join-Path $env:TEMP "skill-installer-test-$([guid]::NewGuid().ToString('N'))"
+$sourceRoot = Join-Path $sandbox 'sources'
+$linkRoot = Join-Path $sandbox 'links'
+
+function Assert-True([bool]$condition, [string]$message) {
+    if (-not $condition) { throw "ASSERTION FAILED: $message" }
+}
+
+function Invoke-Installer([string[]]$arguments) {
+    $output = & pwsh -NoProfile -File $installer @arguments 2>&1 | Out-String
+    [PSCustomObject]@{
+        ExitCode = $LASTEXITCODE
+        Output   = $output
+    }
+}
+
+New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
+$oldSkillsDir = $env:CLAUDE_SKILLS_DIR
+$oldLinkDir = $env:CLAUDE_SKILLS_LINK_DIR
+$oldSkipSmoke = $env:SKIP_SMOKE_TEST
+$oldSkipMemory = $env:SKIP_MEMORY_UPDATE
+
+try {
+    $env:CLAUDE_SKILLS_DIR = $sourceRoot
+    $env:CLAUDE_SKILLS_LINK_DIR = $linkRoot
+    $env:SKIP_SMOKE_TEST = '1'
+    $env:SKIP_MEMORY_UPDATE = '1'
+
+    $dryRun = Invoke-Installer @('-LocalPath', $fixture, '-Name', 'minimal-skill', '-DryRun')
+    Assert-True ($dryRun.ExitCode -eq 0) "local dry-run should succeed without gh authentication. Output: $($dryRun.Output)"
+    Assert-True ($dryRun.Output -match 'DRY RUN') 'dry-run should be explicit in output'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $sourceRoot 'minimal-skill'))) 'dry-run must not create source files'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $linkRoot 'minimal-skill'))) 'dry-run must not create links'
+
+    $invalid = Invoke-Installer @('-LocalPath', $fixture, '-Name', '..\escape', '-DryRun')
+    Assert-True ($invalid.ExitCode -ne 0) 'path traversal name must be rejected'
+    Assert-True ($invalid.Output -match 'skill name|invalid|path') 'invalid name should explain the validation failure'
+
+    New-Item -ItemType Directory -Path (Join-Path $sourceRoot 'minimal-skill') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $sourceRoot 'minimal-skill\sentinel.txt') -Value 'keep me' -Encoding utf8
+    $withoutForce = Invoke-Installer @('-LocalPath', $fixture, '-Name', 'minimal-skill')
+    Assert-True ($withoutForce.ExitCode -ne 0) 'existing install must require explicit force'
+    Assert-True ((Get-Content -Raw -LiteralPath (Join-Path $sourceRoot 'minimal-skill\sentinel.txt')) -match 'keep me') 'existing source must not be removed on refusal'
+
+    $secretFixture = Join-Path $sandbox 'secret-skill'
+    Copy-Item -LiteralPath $fixture -Destination $secretFixture -Recurse -Force
+    Set-Content -LiteralPath (Join-Path $secretFixture '.env') -Value 'DO_NOT_COPY=1' -Encoding utf8
+    $secret = Invoke-Installer @('-LocalPath', $secretFixture, '-Name', 'secret-skill', '-DryRun')
+    Assert-True ($secret.ExitCode -ne 0) 'sensitive local files must be rejected'
+    Assert-True ($secret.Output -match 'sensitive') 'sensitive-file failure should be explicit'
+
+    $fresh = Invoke-Installer @('-LocalPath', $fixture, '-Name', 'fresh-skill')
+    Assert-True ($fresh.ExitCode -eq 0) "fresh local install should succeed. Output: $($fresh.Output)"
+    Assert-True (Test-Path -LiteralPath (Join-Path $sourceRoot 'fresh-skill\SKILL.md')) 'fresh source should exist'
+    Assert-True (Test-Path -LiteralPath (Join-Path $linkRoot 'fresh-skill\SKILL.md')) 'fresh link should exist'
+    Assert-True (Test-Path -LiteralPath (Join-Path $sourceRoot 'installed-skills-index.json')) 'successful install should refresh the catalog index'
+    $freshIndex = Get-Content -Raw -LiteralPath (Join-Path $sourceRoot 'installed-skills-index.json') | ConvertFrom-Json
+    Assert-True (@($freshIndex.skills | Where-Object install_name -eq 'fresh-skill').Count -eq 1) 'catalog should include the newly installed skill directory'
+
+    $forced = Invoke-Installer @('-LocalPath', $fixture, '-Name', 'fresh-skill', '-Force')
+    Assert-True ($forced.ExitCode -eq 0) "forced replacement should succeed. Output: $($forced.Output)"
+    Assert-True ($forced.Output -match 'backed up') 'forced replacement should report a backup'
+    Assert-True ((Get-ChildItem -LiteralPath (Join-Path $sourceRoot '.backups') -Directory -ErrorAction SilentlyContinue | Where-Object Name -like 'fresh-skill-*').Count -gt 0) 'forced replacement should create a backup directory'
+
+    Remove-Item Env:SKIP_MEMORY_UPDATE -ErrorAction SilentlyContinue
+    Set-Content -LiteralPath (Join-Path $sourceRoot 'installed-tools-summary.md') -Value '| Skill | Repo | Source | Link | Smoke | Date |' -Encoding utf8
+    $memoryFirst = Invoke-Installer @('-LocalPath', $fixture, '-Name', 'memory-skill', '-UpdateMemory')
+    $memorySecond = Invoke-Installer @('-LocalPath', $fixture, '-Name', 'memory-skill', '-Force', '-UpdateMemory')
+    Assert-True ($memoryFirst.ExitCode -eq 0 -and $memorySecond.ExitCode -eq 0) 'memory update installs should succeed'
+    $memoryRows = @(Select-String -LiteralPath (Join-Path $sourceRoot 'installed-tools-summary.md') -Pattern '\| memory-skill \|')
+    Assert-True ($memoryRows.Count -eq 1) 'memory update should be idempotent'
+
+    Write-Output 'PASS: installer regression tests'
+}
+finally {
+    $env:CLAUDE_SKILLS_DIR = $oldSkillsDir
+    $env:CLAUDE_SKILLS_LINK_DIR = $oldLinkDir
+    $env:SKIP_SMOKE_TEST = $oldSkipSmoke
+    $env:SKIP_MEMORY_UPDATE = $oldSkipMemory
+    if (Test-Path -LiteralPath $sandbox) { Remove-Item -LiteralPath $sandbox -Recurse -Force }
+}
