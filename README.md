@@ -1,4 +1,4 @@
-# agent-skills
+# skill-installer
 
 Install, validate, and link a Claude Code skill from a GitHub repository or a local directory.
 
