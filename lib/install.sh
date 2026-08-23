@@ -198,7 +198,7 @@ create_install_link() {
 
 codex_protected_target() {
     [[ "$AGENT" == 'codex' ]] || return 1
-    local candidate protected
+    local candidate protected probe resolved
     candidate="$(canonical_path "$1")"
     if [[ -z "$candidate" || "$candidate" == "$1" ]]; then
         local parent leaf resolved_parent
@@ -210,6 +210,18 @@ codex_protected_target() {
         [[ -n "$protected" ]] || continue
         protected="$(canonical_path "$protected")"
         [[ "$candidate" == "$protected" || "$candidate" == "$protected/"* ]] && return 0
+    done
+    probe="$1"
+    while [[ -n "$probe" && "$probe" != "/" && "$probe" != "." ]]; do
+        if [[ -L "$probe" ]]; then
+            resolved="$(canonical_path "$probe")"
+            for protected in "$(get_codex_system_skill_root)" "$(get_codex_admin_skill_root || true)"; do
+                [[ -n "$protected" ]] || continue
+                protected="$(canonical_path "$protected")"
+                [[ "$resolved" == "$protected" || "$resolved" == "$protected/"* ]] && return 0
+            done
+        fi
+        probe="$(dirname -- "$probe")"
     done
     return 1
 }
