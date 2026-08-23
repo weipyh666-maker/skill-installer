@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.1.0] — 2026-08-23
+
+### Added
+- Standardized 50-query bilingual Find Benchmark suite (`tests/fixtures/find-benchmark/queries.json`) covering 6 test categories: Chinese natural-language memory recall, English natural-language intent, keyword queries, compound queries, negative queries (unmatched domain rejection), and synonym expansion.
+- Automated benchmark test harnesses in Bash (`tests/test-find-benchmark.sh`) and PowerShell (`tests/test-find-benchmark.ps1`) enforcing strict accuracy targets (Top-1 >= 85%, Top-3 >= 95%).
+- High-precision search scoring engine (`core/search.sh`, `core/search.ps1`, `lib/catalog.sh`, `lib/catalog.ps1`) featuring:
+  - Multilingual stop-word filtering (stripping generic query noise like "find a skill that", "我装了一个...但是忘了名字").
+  - Bidirectional synonym expansion dictionary mapping cross-domain concepts (e.g. PPT/slides, Excel/table, Audio/transcription, Git guardrails, PRD/issues).
+  - Multi-tier scoring hierarchy: exact name / name substring (35-60 pts), explicit capability tags (25 pts), category tags (10 pts), and description keywords (5 pts).
+  - Intent domain guards and negative query filters eliminating cross-domain false positives (e.g. distinguishing PRD from document converters).
+- Added `match_reason` line to `find` output (e.g. `matched: name="..." hit on ...; capabilities=[...]; description hit on ...`) providing transparent search explainability across human and JSON modes.
+- Added CI workflow integration in `.github/workflows/ci.yml` running the 50-query benchmark suite across Ubuntu, macOS, and Windows runners.
+- Benchmark achievement: **Top-1 accuracy 96.0% (48/50)** and **Top-3 accuracy 100.0% (50/50)** on real-world 153 installed skills inventory.
+
 ## [3.0.0] — 2026-08-23
 
 ### Added

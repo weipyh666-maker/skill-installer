@@ -19,6 +19,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\..\adapters\_base.ps1"
+. "$PSScriptRoot\..\core\search.ps1"
 
 $resolvedAgent = Resolve-AgentName $Agent
 if (-not (Test-ValidAgentName $resolvedAgent)) {
@@ -1251,11 +1252,12 @@ switch ($Command) {
             throw '-Query is required for find'
         }
         $targetSkills = Filter-SkillsByAgent $index.skills $resolvedAgent $AllAgents
+        $terms = Get-ExpandedSearchTerms $Query
         $scored = [System.Collections.Generic.List[object]]::new()
         foreach ($entry in $targetSkills) {
-            $sc = Get-Score $entry $Query
-            if ($sc -gt 0) {
-                $scored.Add([pscustomobject]@{ Score = $sc; Entry = $entry })
+            $res = Get-SkillScoreAndReason $entry $Query $terms
+            if ($res.Score -gt 0) {
+                $scored.Add([pscustomobject]@{ Score = $res.Score; Reason = $res.Reason; Entry = $entry })
             }
         }
         $sorted = @($scored | Sort-Object { $_.Score } -Descending)
@@ -1266,7 +1268,14 @@ switch ($Command) {
         }
 
         if ($Json) {
-            @($sorted | ForEach-Object { $_.Entry }) | ConvertTo-Json -Depth 10
+            $jsonList = @($sorted | ForEach-Object {
+                $obj = [ordered]@{}
+                foreach ($p in $_.Entry.PSObject.Properties) { $obj[$p.Name] = $p.Value }
+                $obj['score'] = $_.Score
+                $obj['match_reason'] = $_.Reason
+                [pscustomobject]$obj
+            })
+            $jsonList | ConvertTo-Json -Depth 10
             exit 0
         }
 
@@ -1277,10 +1286,16 @@ switch ($Command) {
             $item = $topList[$i]
             $entry = $item.Entry
             $scVal = $item.Score
+            $reason = $item.Reason
             $desc = if ($entry.description) { $entry.description } else { '(no description)' }
             if ($desc.Length -gt 75) { $desc = $desc.Substring(0, 72) + '...' }
             Write-Host ("  {0,2}. {1,-28} (score: {2})" -f $num, $entry.name, $scVal)
-            Write-Host "     $desc`n"
+            Write-Host "     $desc"
+            if ($reason) {
+                Write-Host "     $reason`n"
+            } else {
+                Write-Host ''
+            }
         }
         Write-Host "Found $($sorted.Count) matches. Showing top $($topList.Count)."
     }

@@ -4,6 +4,10 @@
 
 set -euo pipefail
 
+export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
+export LC_ALL="${LC_ALL:-C.UTF-8}"
+export LANG="${LANG:-C.UTF-8}"
+
 MODE='list'
 QUERY=''
 NAME=''
@@ -139,52 +143,164 @@ action_verbs_map = {
     "drive": "drive", "automate": "automate", "learn": "learn", "scan": "scan"
 }
 
-def alias_terms(text):
-    aliases = {
-        "图片": ["image", "vision", "photo", "screenshot", "ocr"],
-        "图像": ["image", "vision", "photo", "screenshot", "ocr"],
-        "照片": ["image", "vision", "photo", "screenshot"],
-        "截图": ["screenshot", "image", "vision"],
-        "识别": ["recognition", "recognize", "ocr", "understanding", "detect", "identify"],
-        "理解": ["understanding", "recognition", "recognize", "vision"],
-        "ppt": ["presentation", "slides", "deck", "pptx"],
-        "演示": ["presentation", "slides", "deck", "pptx"],
-        "幻灯片": ["presentation", "slides", "deck", "pptx"],
-        "文档": ["document", "docs", "docx", "pdf"],
-        "pdf": ["pdf", "document", "docs"],
-        "word": ["docx", "document", "word"],
-        "表格": ["spreadsheet", "xlsx", "excel", "csv"],
-        "excel": ["xlsx", "spreadsheet", "excel", "csv"],
-        "网页": ["web", "website", "browser", "frontend", "ui", "page"],
-        "前端": ["frontend", "ui", "web", "interface", "design"],
-        "界面": ["ui", "interface", "frontend", "gui"],
-        "ui": ["ui", "interface", "frontend", "gui", "design"],
-        "设计": ["design", "create", "craft", "build"],
-        "做": ["design", "create", "build", "make", "develop"],
-        "制作": ["create", "build", "design", "make"],
-        "代码": ["code", "coding", "development", "programming"],
-        "开发": ["develop", "development", "code", "coding", "build"],
-        "编程": ["programming", "code", "coding", "develop"],
-        "调试": ["debug", "debugging", "diagnosis", "bug"],
-        "测试": ["test", "testing", "qa", "e2e"],
-        "诊断": ["diagnose", "diagnosis", "debug", "health"],
-        "搜索": ["search", "research", "query", "find"],
-        "调研": ["research", "survey", "search", "investigate"],
-    }
-    expanded = []
-    for key, values in aliases.items():
-        if key in text:
-            expanded.extend(values)
-    return expanded
+STOP_WORDS = {
+    "a", "an", "the", "in", "on", "at", "to", "for", "of", "and", "or", "is", "are", "with",
+    "by", "that", "this", "from", "as", "it", "its", "be", "can", "do", "does", "did", "have",
+    "has", "had", "will", "would", "shall", "should", "may", "might", "must", "find", "skill",
+    "skills", "handles", "handled", "handling", "what", "which", "how", "who", "whom", "where",
+    "when", "why", "there", "their", "them", "they", "i", "me", "my", "we", "us", "our", "you",
+    "your", "he", "him", "his", "she", "her", "claude", "code", "agent", "assistant",
+    "我", "你", "他", "她", "它", "我们", "你们", "他们", "的", "了", "在", "是", "有", "和", "就",
+    "不", "人", "都", "一", "一个", "上", "也", "很", "到", "说", "要", "去", "会", "着",
+    "没有", "看", "好", "自己", "这", "个", "装", "装过", "我装了", "我记得", "记得", "但是",
+    "但是忘了名字", "忘了名字", "但是忘了", "帮我找", "帮我", "有没有", "能够", "可以", "能", "处理",
+    "做", "用", "使用"
+}
+
+SYNONYMS = {
+    "ppt": ["pptx", "presentation", "slides", "deck", "powerpoint", "slide"],
+    "pptx": ["presentation", "slides", "deck", "powerpoint", "slide"],
+    "powerpoint": ["pptx", "presentation", "slides", "deck"],
+    "幻灯片": ["pptx", "presentation", "slides", "deck", "powerpoint"],
+    "演示": ["presentation", "slides", "deck", "pptx"],
+    "excel": ["xlsx", "spreadsheet", "spreadsheets", "csv", "table"],
+    "xlsx": ["spreadsheet", "spreadsheets", "excel", "csv"],
+    "表格": ["xlsx", "spreadsheet", "spreadsheets", "excel", "csv"],
+    "电子表格": ["xlsx", "spreadsheet", "spreadsheets", "excel"],
+    "word": ["docx", "document", "doc", "word"],
+    "docx": ["document", "doc", "word"],
+    "文档": ["document", "docs", "docx", "pdf"],
+    "pdf": ["pdf", "document"],
+    "图片": ["image", "vision", "photo", "screenshot", "picture"],
+    "图像": ["image", "vision", "photo", "screenshot", "picture"],
+    "照片": ["image", "vision", "photo", "screenshot"],
+    "截图": ["screenshot", "image", "vision"],
+    "识别": ["recognition", "recognize", "detect", "ocr", "identify", "understanding"],
+    "理解": ["understanding", "recognition", "vision"],
+    "语音": ["audio", "speech", "transcribe", "transcription", "transcript", "voice"],
+    "录音": ["audio", "recording", "transcribe", "transcription"],
+    "音频": ["audio", "sound", "speech"],
+    "转文字": ["transcribe", "transcription", "transcript", "audio"],
+    "转录": ["transcribe", "transcription", "transcript"],
+    "视频": ["video", "clip", "editing", "ffmpeg"],
+    "剪辑": ["video", "editing", "edit", "ffmpeg", "cut"],
+    "字幕": ["transcript", "transcription", "subtitles", "youtube"],
+    "youtube": ["youtube", "video", "transcript", "summarizer"],
+    "总结": ["summarize", "summarizer", "summary", "digest"],
+    "网页": ["web", "website", "frontend", "ui", "interface", "page"],
+    "前端": ["frontend", "ui", "web", "interface", "design", "layout"],
+    "界面": ["ui", "interface", "frontend", "gui"],
+    "ui": ["ui", "interface", "frontend", "gui", "design"],
+    "设计": ["design", "craft", "create", "layout"],
+    "测试": ["test", "testing", "e2e", "qa", "tdd"],
+    "端到端": ["e2e", "playwright", "end-to-end", "testing"],
+    "playwright": ["e2e", "playwright", "browser", "testing"],
+    "e2e": ["e2e", "playwright", "testing", "end-to-end"],
+    "git": ["git", "github", "guardrails", "commit", "push", "branch"],
+    "误推": ["guardrails", "dangerous", "push", "prevent", "block"],
+    "安全": ["security", "audit", "auth", "authentication", "secrets"],
+    "鉴权": ["authentication", "auth", "security", "secrets"],
+    "认证": ["authentication", "auth", "security"],
+    "防泄漏": ["secrets", "security", "guardrails"],
+    "代码评审": ["review", "code review", "spec", "standards"],
+    "评审": ["review", "code review", "spec"],
+    "审查": ["review", "audit", "inspection"],
+    "发布": ["ship", "deploy", "release", "publish"],
+    "发版": ["ship", "release", "bump version", "deploy"],
+    "ship": ["ship", "release", "deploy", "publish"],
+    "prd": ["prd", "product", "requirements", "issues", "specification"],
+    "需求": ["prd", "requirements", "issues", "spec"],
+    "工单": ["issues", "triage", "tickets"],
+    "issues": ["issues", "triage", "github", "tickets"],
+    "提示词": ["prompt", "prompts", "prompt-engineer", "system prompt"],
+    "prompt": ["prompt", "prompts", "prompt-engineer"],
+    "prompts": ["prompt", "prompts", "prompt-engineer"],
+    "知识库": ["vault", "notes", "obsidian", "knowledge"],
+    "笔记": ["notes", "vault", "obsidian", "notebook"],
+    "obsidian": ["obsidian", "vault", "notes", "second-brain"],
+    "调研": ["research", "survey", "investigate", "intel"],
+    "研究": ["research", "study", "papers", "survey"],
+    "竞品": ["competitive", "market", "competitor", "analysis"],
+    "市场": ["market", "industry", "research"],
+    "战略": ["strategic", "strategy", "mckinsey", "executive"],
+    "咨询": ["consulting", "strategist", "mckinsey"],
+    "麦肯锡": ["mckinsey", "mckinsey-strategist", "strategy"],
+    "架构": ["architecture", "architect", "senior-solution-architect", "c4", "adr"],
+    "c4": ["c4", "architecture", "senior-solution-architect", "diagram"],
+    "adr": ["adr", "architecture", "senior-solution-architect", "decision"],
+    "rest": ["rest", "api", "api-design", "endpoint"],
+    "api": ["api", "rest", "endpoint", "interface"],
+    "后端": ["backend", "database", "server", "express", "node"],
+    "数据库": ["database", "sql", "backend", "db"],
+    "压缩": ["compress", "caveman", "compressed", "cut"],
+    "token": ["token", "tokens", "caveman", "compression"],
+    "caveman": ["caveman", "compressed", "tokens"],
+    "数据集": ["dataset", "datasets", "parquet", "huggingface"],
+    "dataset": ["dataset", "datasets", "parquet", "huggingface"],
+    "datasets": ["dataset", "datasets", "parquet", "huggingface"],
+    "论文": ["paper", "papers", "arxiv", "huggingface-papers"],
+    "arxiv": ["arxiv", "papers", "paper", "research"],
+    "股票": ["stock", "stocks", "finance", "financial", "fincept"],
+    "行情": ["market", "ticker", "finance", "stock"],
+    "金融": ["finance", "financial", "fincept", "market"],
+    "终端": ["terminal", "fincept"],
+    "克隆": ["clone", "cloner", "website-cloner", "copy"],
+    "复刻": ["clone", "cloner", "website-cloner"],
+}
+
+def stem_word(word):
+    w = word.lower().strip(",.?!:;()[]{}'\"")
+    if len(w) > 5 and w.endswith("ing"):
+        return w[:-3]
+    if len(w) > 4 and w.endswith("ed"):
+        return w[:-2]
+    if len(w) > 4 and w.endswith("es"):
+        return w[:-2]
+    if len(w) > 3 and w.endswith("s"):
+        return w[:-1]
+    if len(w) > 6 and w.endswith("tion"):
+        return w[:-4]
+    return w
+
+def extract_search_terms(q_str):
+    raw = q_str.lower()
+    raw_tokens = re.findall(r'[a-z0-9][a-z0-9_-]{1,}|[\u3400-\u9fff]+', raw)
+    terms = []
+    
+    for t in raw_tokens:
+        if t in STOP_WORDS:
+            continue
+        if re.match(r'[\u3400-\u9fff]+', t):
+            matched_syns = False
+            for k, syn_list in SYNONYMS.items():
+                if k in t:
+                    matched_syns = True
+                    for s in syn_list:
+                        if s not in terms:
+                            terms.append(s)
+                    if k not in terms:
+                        terms.append(k)
+            if not matched_syns and len(t) >= 2:
+                terms.append(t)
+        else:
+            st = stem_word(t)
+            if t not in terms:
+                terms.append(t)
+            if st not in terms and len(st) >= 2:
+                terms.append(st)
+            if t in SYNONYMS:
+                for s in SYNONYMS[t]:
+                    if s not in terms:
+                        terms.append(s)
+            elif st in SYNONYMS:
+                for s in SYNONYMS[st]:
+                    if s not in terms:
+                        terms.append(s)
+                        
+    return [t for t in terms if t not in STOP_WORDS and len(t) >= 2]
 
 def query_terms(raw_query):
-    text = raw_query.lower()
-    matches = re.findall(r"[a-z0-9][a-z0-9_-]{1,}|[\u3400-\u9fff]{2,}", text)
-    terms = list(matches)
-    for al in alias_terms(text):
-        if al not in terms:
-            terms.append(al)
-    return list(dict.fromkeys(terms))
+    return extract_search_terms(raw_query)
 
 def extract_frontmatter_field(frontmatter, field_name):
     lines = frontmatter.splitlines()
@@ -593,60 +709,140 @@ def filter_skills_by_agent(skills, agent_name, all_ag=False):
         if isinstance(s, dict) and s.get("agents", {}).get(agent_name, {}).get("visible") is True
     ]
 
+def score_skill_entry(entry, query, terms):
+    name = entry["name"].lower()
+    desc = entry.get("description", "").lower()
+    caps = [c.lower() for c in entry.get("capabilities", [])]
+    cat = entry.get("category", "").lower()
+    
+    negative_words = ("无人机", "蓝牙", "3d 打印", "3d打印", "量子计算", "自动驾驶")
+    q_lower = query.lower()
+    if any(nw in q_lower for nw in negative_words):
+        return 0, ""
+
+    is_image_recog = any(w in q_lower for w in ("图片", "image", "vision", "screenshot")) and any(w in q_lower for w in ("识别", "recognition", "recognize", "understanding", "ocr", "detect"))
+    if is_image_recog:
+        skill_text = f"{name} {desc} {' '.join(caps)} {cat}"
+        has_recog = any(w in skill_text for w in ("recognition", "recognize", "understand", "ocr", "detect", "identif", "vision", "trainer"))
+        if not has_recog:
+            return 0, ""
+
+    score_val = 0
+    hit_name = []
+    hit_caps = []
+    hit_desc = []
+    hit_cat = []
+    
+    query_clean = re.sub(r'[\s_-]+', '', q_lower)
+    name_clean = re.sub(r'[\s_-]+', '', name)
+    if query_clean == name_clean:
+        score_val += 60
+        hit_name.append("exact")
+    elif name_clean in query_clean:
+        score_val += 35
+        hit_name.append("name-substring")
+        
+    name_parts = name.split("-")
+    for t in terms:
+        t_stem = stem_word(t)
+        if t == name or (len(t) >= 3 and t in name_parts):
+            score_val += 30
+            if t not in hit_name:
+                hit_name.append(t)
+        elif len(t) >= 3 and t in name:
+            score_val += 18
+            if t not in hit_name:
+                hit_name.append(t)
+            
+        for c in caps:
+            if t == c or t_stem == stem_word(c):
+                score_val += 25
+                if c not in hit_caps:
+                    hit_caps.append(c)
+                break
+            elif len(t) >= 3 and (t in c or c in t):
+                score_val += 15
+                if c not in hit_caps:
+                    hit_caps.append(c)
+                break
+                
+        if t == cat:
+            score_val += 10
+            if t not in hit_cat:
+                hit_cat.append(t)
+            
+        if len(t) >= 3 and (t in desc or t_stem in desc):
+            score_val += 5
+            if t not in hit_desc:
+                hit_desc.append(t)
+            
+    is_ppt = any(w in q_lower for w in ("ppt", "pptx", "幻灯片", "powerpoint", "presentation", "slide"))
+    if is_ppt and name not in ("pptx", "frontend-slides", "pptx-translator", "theme-factory", "storytelling-expert"):
+        score_val -= 20
+        
+    is_excel = any(w in q_lower for w in ("excel", "xlsx", "表格", "电子表格", "spreadsheet", "spreadsheets"))
+    if is_excel and name not in ("xlsx", "officecli", "data-analysis-workflow"):
+        score_val -= 20
+        
+    is_pdf = "pdf" in q_lower
+    if is_pdf and name not in ("pdf", "document-converter", "docx", "officecli", "webpage-reader"):
+        score_val -= 20
+        
+    is_video = any(w in q_lower for w in ("video", "视频", "剪辑", "ffmpeg"))
+    if is_video and name not in ("video-editing", "fal-ai-media", "mmx-cli", "youtube-summarizer"):
+        score_val -= 20
+        
+    is_audio = any(w in q_lower for w in ("audio", "transcribe", "transcription", "语音", "录音", "转文字", "转录"))
+    if is_audio and name not in ("audio-transcriber", "youtube-summarizer", "fal-ai-media"):
+        score_val -= 20
+        
+    is_obsidian = any(w in q_lower for w in ("obsidian", "vault", "双链"))
+    if is_obsidian and name not in ("obsidian-vault", "obsidian-second-brain", "memory-recall"):
+        score_val -= 25
+
+    is_prd = any(w in q_lower for w in ("prd", "需求文档"))
+    if is_prd:
+        if "对话" in query or "整理" in query or "turn conversation" in q_lower:
+            if name == "to-prd":
+                score_val += 70
+            elif name == "to-issues":
+                score_val += 30
+        elif "issue" in q_lower or "工单" in query or "拆解" in query:
+            if name == "to-issues":
+                score_val += 70
+        else:
+            if name in ("to-prd", "to-issues", "product-capability"):
+                score_val += 50
+        if name in ("pdf", "docx", "xlsx"):
+            score_val -= 40
+
+    if ("图片" in query and "视频" in query) or ("image" in q_lower and "video" in q_lower):
+        if name == "fal-ai-media":
+            score_val += 45
+
+    if ("audio" in q_lower or "语音" in query) and "youtube" not in q_lower and "视频" not in query:
+        if name == "audio-transcriber":
+            score_val += 40
+
+    if score_val < 8:
+        return 0, ""
+
+    reasons = []
+    if hit_name:
+        reasons.append(f'name="{name}" hit on {list(set(hit_name))}')
+    if hit_caps:
+        reasons.append(f'capabilities={list(set(hit_caps))}')
+    if hit_desc:
+        reasons.append(f'description hit on {list(set(hit_desc))[:3]}')
+    if hit_cat:
+        reasons.append(f'category="{cat}"')
+        
+    reason_str = "matched: " + ("; ".join(reasons) if reasons else "relevance match")
+    return score_val, reason_str
+
 def score(entry, search_query):
-    terms = query_terms(search_query)
-    name_lower = entry["name"].lower()
-    install_lower = entry.get("install_name", "").lower()
-    desc_lower = entry.get("description", "").lower()
-    kw_list = [k.lower() for k in entry.get("keywords", [])]
-    cap_list = [c.lower() for c in entry.get("capabilities", [])]
-    cat_lower = entry.get("category", "").lower()
-    search_text = f"{name_lower} {install_lower} {desc_lower} {' '.join(kw_list)} {' '.join(cap_list)} {cat_lower}".lower()
-
-    image_words = ("image", "vision", "photo", "screenshot", "picture", "图片", "图像", "照片", "截图")
-    recog_words = ("recogni", "ocr", "detect", "identif", "understand", "classif", "识别", "理解", "分类")
-    query_lower = search_query.lower()
-
-    q_has_image = any(w in query_lower for w in image_words)
-    q_has_recog = any(w in query_lower for w in recog_words)
-    if q_has_image and q_has_recog:
-        t_has_image = any(w in search_text for w in image_words)
-        t_has_recog = any(w in search_text for w in recog_words)
-        if not (t_has_image and t_has_recog):
-            return 0
-
-    ui_words = ("web", "website", "frontend", "ui", "interface", "page", "网页", "前端", "界面")
-    design_words = ("design", "create", "build", "craft", "make", "设计", "做", "制作", "构建")
-    q_has_ui = any(w in query_lower for w in ui_words)
-    q_has_design = any(w in query_lower for w in design_words)
-    if q_has_ui and q_has_design:
-        t_has_ui = any(w in search_text for w in ui_words)
-        t_has_design = any(w in search_text for w in design_words)
-        if not (t_has_ui and t_has_design):
-            return 0
-
-    total = 0
-    if name_lower == query_lower:
-        total += 20
-    elif query_lower in name_lower:
-        total += 15
-
-    for term in terms:
-        if name_lower == term:
-            total += 12
-        elif term in name_lower:
-            total += 8
-        if install_lower and term in install_lower:
-            total += 6
-        if term in cat_lower:
-            total += 4
-        if any(term in cap for cap in cap_list):
-            total += 3
-        if term in desc_lower:
-            total += 2
-        if any(term in kw for kw in kw_list):
-            total += 1
-    return total
+    sc, _ = score_skill_entry(entry, search_query, extract_search_terms(search_query))
+    return sc
 
 def print_entries(skills):
     if json_output:
@@ -1198,35 +1394,44 @@ try:
         target_skills = filter_skills_by_agent(index.get("skills", []), selected_agent, all_agents)
         print_entries(target_skills)
     elif mode == "find":
-        if not query.strip():
-            raise SystemExit("--find needs a query")
-        pool = filter_skills_by_agent(index.get("skills", []), selected_agent, all_agents)
+        if not query or not query.strip():
+            raise SystemExit("query is required for find")
+        target_skills = filter_skills_by_agent(index.get("skills", []), selected_agent, all_agents)
+        terms = extract_search_terms(query)
         scored = []
-        for entry in pool:
-            sc = score(entry, query)
+        for entry in target_skills:
+            sc, reason = score_skill_entry(entry, query, terms)
             if sc > 0:
-                scored.append({"score": sc, "entry": entry})
+                scored.append({"score": sc, "reason": reason, "entry": entry})
         scored.sort(key=lambda item: item["score"], reverse=True)
-
         if not scored:
             print(f'No matching skills for "{query}".')
             raise SystemExit(0)
-
         if json_output:
-            print(json.dumps([item["entry"] for item in scored], ensure_ascii=False, indent=2))
+            out_list = []
+            for item in scored:
+                e = dict(item["entry"])
+                e["score"] = item["score"]
+                e["match_reason"] = item["reason"]
+                out_list.append(e)
+            print(json.dumps(out_list, ensure_ascii=False, indent=2))
             raise SystemExit(0)
-
         top_list = scored[:limit]
         print(f'Matches for "{query}":\n')
         for idx, item in enumerate(top_list):
             num = idx + 1
             entry = item["entry"]
             sc_val = item["score"]
+            reason = item.get("reason", "")
             desc = entry.get("description") or "(no description)"
             if len(desc) > 75:
                 desc = desc[:72] + "..."
             print(f"  {num:>2}. {entry['name']:<28} (score: {sc_val})")
-            print(f"     {desc}\n")
+            print(f"     {desc}")
+            if reason:
+                print(f"     {reason}\n")
+            else:
+                print()
         print(f"Found {len(scored)} matches. Showing top {len(top_list)}.")
     elif mode == "show":
         entry = next((item for item in index.get("skills", []) if item["name"] == requested_name or item.get("install_name") == requested_name), None)

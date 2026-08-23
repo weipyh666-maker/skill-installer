@@ -1,0 +1,586 @@
+[
+  {
+    "id": "q01",
+    "query": "我记得装过一个做 PPT 的 Skill",
+    "language": "zh",
+    "category": "memory_recall",
+    "gold_top1": "pptx",
+    "gold_top3": [
+      "pptx",
+      "frontend-slides",
+      "pptx-translator"
+    ]
+  },
+  {
+    "id": "q02",
+    "query": "处理 Excel 表格",
+    "language": "zh",
+    "category": "keyword",
+    "gold_top1": "xlsx",
+    "gold_top3": [
+      "xlsx",
+      "officecli",
+      "data-analysis-workflow"
+    ]
+  },
+  {
+    "id": "q03",
+    "query": "find a skill that handles PDFs",
+    "language": "en",
+    "category": "natural_language",
+    "gold_top1": "pdf",
+    "gold_top3": [
+      "pdf",
+      "document-converter",
+      "docx"
+    ]
+  },
+  {
+    "id": "q04",
+    "query": "我装了一个能处理图片识别的，但是忘了名字",
+    "language": "zh",
+    "category": "memory_recall",
+    "gold_top1": "transformers-js",
+    "gold_top3": [
+      "transformers-js",
+      "huggingface-vision-trainer",
+      "huggingface-local-models"
+    ]
+  },
+  {
+    "id": "q05",
+    "query": "控制无人机",
+    "language": "zh",
+    "category": "negative",
+    "gold_top1": null,
+    "gold_top3": []
+  },
+  {
+    "id": "q06",
+    "query": "做网页 UI 的",
+    "language": "zh",
+    "category": "compound",
+    "gold_top1": "frontend-design",
+    "gold_top3": [
+      "frontend-design",
+      "frontend-patterns",
+      "frontend-slides"
+    ]
+  },
+  {
+    "id": "q07",
+    "query": "audio transcription and summaries",
+    "language": "en",
+    "category": "keyword",
+    "gold_top1": "audio-transcriber",
+    "gold_top3": [
+      "audio-transcriber",
+      "youtube-summarizer",
+      "fal-ai-media"
+    ]
+  },
+  {
+    "id": "q08",
+    "query": "语音转文字",
+    "language": "zh",
+    "category": "keyword",
+    "gold_top1": "audio-transcriber",
+    "gold_top3": [
+      "audio-transcriber",
+      "youtube-summarizer",
+      "fal-ai-media"
+    ]
+  },
+  {
+    "id": "q09",
+    "query": "总结 YouTube 视频字幕",
+    "language": "zh",
+    "category": "natural_language",
+    "gold_top1": "youtube-summarizer",
+    "gold_top3": [
+      "youtube-summarizer",
+      "audio-transcriber",
+      "fal-ai-media"
+    ]
+  },
+  {
+    "id": "q10",
+    "query": "video editing with FFmpeg",
+    "language": "en",
+    "category": "keyword",
+    "gold_top1": "video-editing",
+    "gold_top3": [
+      "video-editing",
+      "fal-ai-media",
+      "mmx-cli"
+    ]
+  },
+  {
+    "id": "q11",
+    "query": "AI 生成图片与视频",
+    "language": "zh",
+    "category": "compound",
+    "gold_top1": "fal-ai-media",
+    "gold_top3": [
+      "fal-ai-media",
+      "video-editing",
+      "mmx-cli"
+    ]
+  },
+  {
+    "id": "q12",
+    "query": "Playwright end to end testing",
+    "language": "en",
+    "category": "keyword",
+    "gold_top1": "e2e-testing",
+    "gold_top3": [
+      "e2e-testing",
+      "webapp-testing",
+      "gstack"
+    ]
+  },
+  {
+    "id": "q13",
+    "query": "自动化端到端测试",
+    "language": "zh",
+    "category": "natural_language",
+    "gold_top1": "e2e-testing",
+    "gold_top3": [
+      "e2e-testing",
+      "webapp-testing",
+      "tdd-workflow"
+    ]
+  },
+  {
+    "id": "q14",
+    "query": "防止 git 误推代码到远程",
+    "language": "zh",
+    "category": "memory_recall",
+    "gold_top1": "git-guardrails-claude-code",
+    "gold_top3": [
+      "git-guardrails-claude-code",
+      "setup-pre-commit",
+      "github-ops"
+    ]
+  },
+  {
+    "id": "q15",
+    "query": "block dangerous git push reset commands",
+    "language": "en",
+    "category": "natural_language",
+    "gold_top1": "git-guardrails-claude-code",
+    "gold_top3": [
+      "git-guardrails-claude-code",
+      "setup-pre-commit",
+      "github-ops"
+    ]
+  },
+  {
+    "id": "q16",
+    "query": "代码评审检查 spec 和标准",
+    "language": "zh",
+    "category": "keyword",
+    "gold_top1": "review",
+    "gold_top3": [
+      "review",
+      "code-review-excellence",
+      "requesting-code-review"
+    ]
+  },
+  {
+    "id": "q17",
+    "query": "code review pull request diff",
+    "language": "en",
+    "category": "natural_language",
+    "gold_top1": "review",
+    "gold_top3": [
+      "review",
+      "code-review-excellence",
+      "caveman-review"
+    ]
+  },
+  {
+    "id": "q18",
+    "query": "一键发布并 bump version 提交 PR",
+    "language": "zh",
+    "category": "natural_language",
+    "gold_top1": "ship",
+    "gold_top3": [
+      "ship",
+      "finishing-a-development-branch",
+      "github-ops"
+    ]
+  },
+  {
+    "id": "q19",
+    "query": "自动化发版部署 ship workflow",
+    "language": "zh",
+    "category": "keyword",
+    "gold_top1": "ship",
+    "gold_top3": [
+      "ship",
+      "finishing-a-development-branch",
+      "github-ops"
+    ]
+  },
+  {
+    "id": "q20",
+    "query": "将需求 PRD 拆解成 GitHub Issues",
+    "language": "zh",
+    "category": "memory_recall",
+    "gold_top1": "to-issues",
+    "gold_top3": [
+      "to-issues",
+      "to-prd",
+      "triage"
+    ]
+  },
+  {
+    "id": "q21",
+    "query": "把对话内容整理成 PRD 需求文档",
+    "language": "zh",
+    "category": "natural_language",
+    "gold_top1": "to-prd",
+    "gold_top3": [
+      "to-prd",
+      "to-issues",
+      "doc-coauthoring"
+    ]
+  },
+  {
+    "id": "q22",
+    "query": "编写和优化 AI system prompt",
+    "language": "zh",
+    "category": "keyword",
+    "gold_top1": "prompt-engineer",
+    "gold_top3": [
+      "prompt-engineer",
+      "agent-sort",
+      "storytelling-expert"
+    ]
+  },
+  {
+    "id": "q23",
+    "query": "write and optimize prompts for Claude",
+    "language": "en",
+    "category": "natural_language",
+    "gold_top1": "prompt-engineer",
+    "gold_top3": [
+      "prompt-engineer",
+      "agent-sort",
+      "storytelling-expert"
+    ]
+  },
+  {
+    "id": "q24",
+    "query": "管理我的 Obsidian 知识库笔记",
+    "language": "zh",
+    "category": "memory_recall",
+    "gold_top1": "obsidian-vault",
+    "gold_top3": [
+      "obsidian-vault",
+      "obsidian-second-brain",
+      "memory-recall"
+    ]
+  },
+  {
+    "id": "q25",
+    "query": "search and create notes in Obsidian vault",
+    "language": "en",
+    "category": "keyword",
+    "gold_top1": "obsidian-vault",
+    "gold_top3": [
+      "obsidian-vault",
+      "obsidian-second-brain",
+      "memory-recall"
+    ]
+  },
+  {
+    "id": "q26",
+    "query": "做竞品分析与行业市场调研",
+    "language": "zh",
+    "category": "compound",
+    "gold_top1": "market-research",
+    "gold_top3": [
+      "market-research",
+      "mckinsey-strategist",
+      "deep-research"
+    ]
+  },
+  {
+    "id": "q27",
+    "query": "competitive analysis and market research",
+    "language": "en",
+    "category": "keyword",
+    "gold_top1": "market-research",
+    "gold_top3": [
+      "market-research",
+      "mckinsey-strategist",
+      "deep-research"
+    ]
+  },
+  {
+    "id": "q28",
+    "query": "麦肯锡高管战略咨询与分析框架",
+    "language": "zh",
+    "category": "natural_language",
+    "gold_top1": "mckinsey-strategist",
+    "gold_top3": [
+      "mckinsey-strategist",
+      "market-research",
+      "senior-solution-architect"
+    ]
+  },
+  {
+    "id": "q29",
+    "query": "多步骤深度网络研究 deep research",
+    "language": "zh",
+    "category": "keyword",
+    "gold_top1": "deep-research",
+    "gold_top3": [
+      "deep-research",
+      "exa-search",
+      "market-research"
+    ]
+  },
+  {
+    "id": "q30",
+    "query": "neural search with Exa API for web and code",
+    "language": "en",
+    "category": "keyword",
+    "gold_top1": "exa-search",
+    "gold_top3": [
+      "exa-search",
+      "deep-research",
+      "documentation-lookup"
+    ]
+  },
+  {
+    "id": "q31",
+    "query": "智能家居蓝牙配对",
+    "language": "zh",
+    "category": "negative",
+    "gold_top1": null,
+    "gold_top3": []
+  },
+  {
+    "id": "q32",
+    "query": "安全审计认证鉴权与敏感数据防泄漏",
+    "language": "zh",
+    "category": "compound",
+    "gold_top1": "security-review",
+    "gold_top3": [
+      "security-review",
+      "code-review-excellence",
+      "review"
+    ]
+  },
+  {
+    "id": "q33",
+    "query": "security review for authentication and secrets",
+    "language": "en",
+    "category": "keyword",
+    "gold_top1": "security-review",
+    "gold_top3": [
+      "security-review",
+      "code-review-excellence",
+      "review"
+    ]
+  },
+  {
+    "id": "q34",
+    "query": "软件系统架构设计 C4 图与 ADR",
+    "language": "zh",
+    "category": "keyword",
+    "gold_top1": "senior-solution-architect",
+    "gold_top3": [
+      "senior-solution-architect",
+      "backend-patterns",
+      "api-design"
+    ]
+  },
+  {
+    "id": "q35",
+    "query": "design software architecture with C4 diagrams and ADRs",
+    "language": "en",
+    "category": "natural_language",
+    "gold_top1": "senior-solution-architect",
+    "gold_top3": [
+      "senior-solution-architect",
+      "backend-patterns",
+      "api-design"
+    ]
+  },
+  {
+    "id": "q36",
+    "query": "REST API 设计规范与状态码分页",
+    "language": "zh",
+    "category": "compound",
+    "gold_top1": "api-design",
+    "gold_top3": [
+      "api-design",
+      "backend-patterns",
+      "senior-solution-architect"
+    ]
+  },
+  {
+    "id": "q37",
+    "query": "REST API design patterns pagination error handling",
+    "language": "en",
+    "category": "keyword",
+    "gold_top1": "api-design",
+    "gold_top3": [
+      "api-design",
+      "backend-patterns",
+      "senior-solution-architect"
+    ]
+  },
+  {
+    "id": "q38",
+    "query": "Node.js 后端架构模式与数据库优化",
+    "language": "zh",
+    "category": "keyword",
+    "gold_top1": "backend-patterns",
+    "gold_top3": [
+      "backend-patterns",
+      "api-design",
+      "senior-solution-architect"
+    ]
+  },
+  {
+    "id": "q39",
+    "query": "极限压缩 token 节省对话消耗 caveman",
+    "language": "zh",
+    "category": "memory_recall",
+    "gold_top1": "caveman",
+    "gold_top3": [
+      "caveman",
+      "caveman-commit",
+      "strategic-compact"
+    ]
+  },
+  {
+    "id": "q40",
+    "query": "cut token usage ultra compressed communication",
+    "language": "en",
+    "category": "natural_language",
+    "gold_top1": "caveman",
+    "gold_top3": [
+      "caveman",
+      "caveman-commit",
+      "strategic-compact"
+    ]
+  },
+  {
+    "id": "q41",
+    "query": "搜索和下载 Hugging Face 数据集",
+    "language": "zh",
+    "category": "keyword",
+    "gold_top1": "huggingface-datasets",
+    "gold_top3": [
+      "huggingface-datasets",
+      "huggingface-local-models",
+      "huggingface-papers"
+    ]
+  },
+  {
+    "id": "q42",
+    "query": "Hugging Face dataset viewer api parquet download",
+    "language": "en",
+    "category": "keyword",
+    "gold_top1": "huggingface-datasets",
+    "gold_top3": [
+      "huggingface-datasets",
+      "huggingface-local-models",
+      "huggingface-papers"
+    ]
+  },
+  {
+    "id": "q43",
+    "query": "查阅 AI 研究论文与 ArXiv 总结",
+    "language": "zh",
+    "category": "natural_language",
+    "gold_top1": "huggingface-papers",
+    "gold_top3": [
+      "huggingface-papers",
+      "huggingface-paper-publisher",
+      "deep-research"
+    ]
+  },
+  {
+    "id": "q44",
+    "query": "查询股票行情与金融数据终端",
+    "language": "zh",
+    "category": "compound",
+    "gold_top1": "fincept-terminal",
+    "gold_top3": [
+      "fincept-terminal",
+      "data-analysis-workflow",
+      "market-research"
+    ]
+  },
+  {
+    "id": "q45",
+    "query": "stock analysis and financial data terminal",
+    "language": "en",
+    "category": "keyword",
+    "gold_top1": "fincept-terminal",
+    "gold_top3": [
+      "fincept-terminal",
+      "data-analysis-workflow",
+      "market-research"
+    ]
+  },
+  {
+    "id": "q46",
+    "query": "克隆网页并生成 Next.js 项目",
+    "language": "zh",
+    "category": "natural_language",
+    "gold_top1": "growthub-ai-website-cloner-v1",
+    "gold_top3": [
+      "growthub-ai-website-cloner-v1",
+      "frontend-design",
+      "webapp-testing"
+    ]
+  },
+  {
+    "id": "q47",
+    "query": "clone website into clean Next.js shadcn Tailwind codebase",
+    "language": "en",
+    "category": "keyword",
+    "gold_top1": "growthub-ai-website-cloner-v1",
+    "gold_top3": [
+      "growthub-ai-website-cloner-v1",
+      "frontend-design",
+      "webapp-testing"
+    ]
+  },
+  {
+    "id": "q48",
+    "query": "3D 打印切片模型制作",
+    "language": "zh",
+    "category": "negative",
+    "gold_top1": null,
+    "gold_top3": []
+  },
+  {
+    "id": "q49",
+    "query": "量子计算电路模拟器",
+    "language": "zh",
+    "category": "negative",
+    "gold_top1": null,
+    "gold_top3": []
+  },
+  {
+    "id": "q50",
+    "query": "制作 HTML 动效幻灯片 presentations",
+    "language": "zh",
+    "category": "natural_language",
+    "gold_top1": "frontend-slides",
+    "gold_top3": [
+      "frontend-slides",
+      "pptx",
+      "theme-factory"
+    ]
+  }
+]

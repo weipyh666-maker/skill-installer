@@ -13,9 +13,9 @@ A Skill Manager for Claude Code that knows what skills are installed, searches b
 3. **明明装了，为什么 Agent 没发现？ (Diagnose discovery issues & broken skills)**
    Scans the local filesystem for unlinked skills, invalid `SKILL.md` frontmatter, missing files, or duplicated names via `doctor` and `capabilities` commands.
 
-## Features
-
-- **Schema v2 Catalog**: Categorizes skills (`Documents`, `Development`, `Browser`, `Research`, `Data`, `Media`, `Other`) with granular health, capability tags, and visibility checks.
+- **Schema v3 Multi-Agent Catalog**: Categorizes skills (`Documents`, `Development`, `Browser`, `Research`, `Data`, `Media`, `Other`) with granular health, capability tags, and cross-agent visibility checks (`claude`, `codex`, `antigravity`).
+- **High-Accuracy Find Engine**: Multilingual intent search backed by a 50-query benchmark suite achieving 96% Top-1 and 100% Top-3 accuracy with transparent `matched:` explainability reasons.
+- **Trigger Quality Diagnosis & Repair**: Automated `doctor` and `fix` workflows that detect sub-optimal frontmatter descriptions and bulk-repair them into standard `"Use when the user wants to..."` syntax.
 - **Deep Scanning & Ingestion**: Automatically scans and ingests manually placed skills into the index while maintaining installer provenance (`commit`, `sha256`, `installed_at`).
 - **Safe Installation & Refresh**: Installs skills from public or private GitHub repos and local paths, with staging, atomic backups, sensitive file checks, and reparse-point rejection.
 - **Cross-Platform**: Full parity across PowerShell (Windows) and Bash (macOS/Linux/WSL).

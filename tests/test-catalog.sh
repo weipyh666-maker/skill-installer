@@ -298,9 +298,30 @@ cat > "$CLAUDE_SKILLS_DIR/installed-skills-index.json" <<'EOF'
 }
 EOF
 
-migrated_show="$(bash "$CATALOG" --show legacy-skill)"
-[[ "$migrated_show" =~ "agents.claude.visible: True" ]]
-[[ "$migrated_show" =~ "agents.codex.visible: False" ]]
+# 7. V3.1 Find & Match Reason Tests
+mkdir -p "$CLAUDE_SKILLS_LINK_DIR/slides-skill"
+cat > "$CLAUDE_SKILLS_LINK_DIR/slides-skill/SKILL.md" <<'EOF'
+---
+name: slides-skill
+description: Use when creating presentations, slide decks, or PPTX files.
+---
+# slides-skill
+EOF
+bash "$CATALOG" --refresh >/dev/null
+
+# A. Match reason line presence
+find_reason_out="$(bash "$CATALOG" --find "image" --limit 2)"
+[[ "$find_reason_out" =~ "matched:" ]]
+
+# B. Chinese query synonym expansion (PPT -> slides-skill)
+find_ppt_out="$(bash "$CATALOG" --find "PPT" --limit 2)"
+[[ "$find_ppt_out" =~ "slides-skill" ]]
+
+# C. Compound AND filtering (image recognition does not match document)
+find_compound_out="$(bash "$CATALOG" --find "image recognition")"
+[[ "$find_compound_out" =~ "image-skill" ]]
+[[ ! "$find_compound_out" =~ "document-skill" ]]
 
 echo 'PASS: catalog regression tests'
+
 

@@ -271,6 +271,24 @@ try {
     Assert-True ($migratedShow.Output -match 'agents\.claude\.visible:\s*True') 'migrated v2 index should have claude visible'
     Assert-True ($migratedShow.Output -match 'agents\.codex\.visible:\s*False') 'migrated v2 index should have codex visible'
 
+    # 7. V3.1 Find & Match Reason Tests
+    New-TestSkill (Join-Path $linkRoot 'slides-skill') 'slides-skill' 'Use when creating presentations and slide decks.'
+    $v31Refresh = Invoke-Catalog @('-Command', 'refresh')
+    Assert-True ($v31Refresh.ExitCode -eq 0) 'refresh before find tests should succeed'
+
+    # A. Match reason line presence
+    $findReason = Invoke-Catalog @('-Command', 'find', '-Query', 'image', '-Limit', '2')
+    Assert-True ($findReason.Output -match 'matched:') 'find output should contain matched: line'
+
+    # B. Chinese query synonym expansion (PPT -> slides-skill)
+    $findPpt = Invoke-Catalog @('-Command', 'find', '-Query', 'PPT', '-Limit', '2')
+    Assert-True ($findPpt.Output -match 'slides-skill') 'Chinese query PPT should find slides-skill'
+
+    # C. Compound AND filtering (image recognition does not match document)
+    $findCompound = Invoke-Catalog @('-Command', 'find', '-Query', 'image recognition')
+    Assert-True ($findCompound.Output -match 'image-skill') 'compound query image recognition should find image-skill'
+    Assert-True ($findCompound.Output -notmatch 'document-skill') 'compound query image recognition must not match document-skill'
+
     Write-Output 'PASS: catalog regression tests'
 }
 finally {

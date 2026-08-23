@@ -33,6 +33,8 @@ jobs:
         run: bash tests/test-install.sh
       - name: catalog tests
         run: bash tests/test-catalog.sh
+      - name: find benchmark tests
+        run: bash tests/test-find-benchmark.sh
 
   powershell-tests:
     name: PowerShell (Windows)
@@ -46,3 +48,5 @@ jobs:
         run: pwsh -NoProfile -File tests/test-install.ps1
       - name: catalog tests
         run: pwsh -NoProfile -File tests/test-catalog.ps1
+      - name: find benchmark tests
+        run: pwsh -NoProfile -File tests/test-find-benchmark.ps1
