@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  bash-syntax:
+    name: Bash syntax (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n install.sh / catalog.sh
+        run: bash -n lib/install.sh && bash -n lib/catalog.sh
+
+  bash-tests:
+    name: Bash + Python (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: install tests
+        run: bash tests/test-install.sh
+      - name: catalog tests
+        run: bash tests/test-catalog.sh
+
+  powershell-tests:
+    name: PowerShell (Windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: install tests
+        run: pwsh -NoProfile -File tests/test-install.ps1
+      - name: catalog tests
+        run: pwsh -NoProfile -File tests/test-catalog.ps1

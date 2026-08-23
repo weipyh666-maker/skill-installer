@@ -61,4 +61,76 @@ set -e
 }
 grep -q 'keep me' "$CLAUDE_SKILLS_DIR/minimal-skill/sentinel.txt"
 
+set +e
+secret_skill="$SANDBOX/secret-skill"
+cp -a "$FIXTURE" "$secret_skill"
+printf 'DO_NOT_COPY=1\n' > "$secret_skill/.env"
+secret_output="$(bash "$INSTALLER" --local "$secret_skill" --name secret-skill --dry-run 2>&1)"
+secret_status=$?
+set -e
+[[ "$secret_status" -ne 0 ]] || {
+    echo "ASSERTION FAILED: sensitive local files were accepted: $secret_output" >&2
+    exit 1
+}
+assert_contains "$secret_output" "refusing"
+
+set +e
+symlink_skill="$SANDBOX/symlink-skill"
+mkdir -p "$symlink_skill"
+cp -a "$FIXTURE/." "$symlink_skill/"
+ln -s "$FIXTURE/SKILL.md" "$symlink_skill/leaked.md" 2>/dev/null
+set -e
+if [[ -L "$symlink_skill/leaked.md" ]]; then
+    set +e
+    symlink_output="$(bash "$INSTALLER" --local "$symlink_skill" --name symlink-skill --dry-run 2>&1)"
+    symlink_status=$?
+    set -e
+    [[ "$symlink_status" -ne 0 ]] || {
+        echo "ASSERTION FAILED: internal symlink was accepted: $symlink_output" >&2
+        exit 1
+    }
+    assert_contains "$symlink_output" "symbolic link"
+else
+    echo "note: this environment cannot create real symlinks; skipping symlink regression" >&2
+fi
+
+bash "$INSTALLER" --local "$FIXTURE" --name fresh-skill >/dev/null 2>&1
+[[ -f "$CLAUDE_SKILLS_DIR/fresh-skill/SKILL.md" ]] || {
+    echo "ASSERTION FAILED: fresh source SKILL.md missing" >&2
+    exit 1
+}
+[[ -f "$CLAUDE_SKILLS_LINK_DIR/fresh-skill/SKILL.md" ]] || {
+    echo "ASSERTION FAILED: fresh link SKILL.md missing" >&2
+    exit 1
+}
+[[ -f "$CLAUDE_SKILLS_DIR/installed-skills-index.json" ]] || {
+    echo "ASSERTION FAILED: catalog index not created" >&2
+    exit 1
+}
+grep -q '"fresh-skill"' "$CLAUDE_SKILLS_DIR/installed-skills-index.json" || {
+    echo "ASSERTION FAILED: catalog missing fresh-skill entry" >&2
+    exit 1
+}
+
+forced_output="$(bash "$INSTALLER" --local "$FIXTURE" --name fresh-skill --force 2>&1)"
+assert_contains "$forced_output" "backed up"
+[[ -d "$CLAUDE_SKILLS_DIR/.backups" ]] || {
+    echo "ASSERTION FAILED: backup directory not created" >&2
+    exit 1
+}
+ls "$CLAUDE_SKILLS_DIR/.backups"/fresh-skill-* >/dev/null 2>&1 || {
+    echo "ASSERTION FAILED: no backup entry for fresh-skill" >&2
+    exit 1
+}
+
+unset SKIP_MEMORY_UPDATE
+printf '| Skill | Repo | Source | Link | Smoke | Date |\n' > "$CLAUDE_SKILLS_DIR/installed-tools-summary.md"
+bash "$INSTALLER" --local "$FIXTURE" --name memory-skill --update-memory >/dev/null 2>&1
+bash "$INSTALLER" --local "$FIXTURE" --name memory-skill --force --update-memory >/dev/null 2>&1
+memory_rows="$(grep -c '| memory-skill |' "$CLAUDE_SKILLS_DIR/installed-tools-summary.md" || true)"
+[[ "$memory_rows" -eq 1 ]] || {
+    echo "ASSERTION FAILED: memory update not idempotent (rows=$memory_rows)" >&2
+    exit 1
+}
+
 echo 'PASS: installer regression tests'

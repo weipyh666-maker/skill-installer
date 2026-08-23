@@ -94,8 +94,9 @@ function Assert-ValidHash([string]$Value) {
 }
 
 function Assert-NoSensitiveFiles([string]$Path) {
-    $bad = @(Get-ChildItem -LiteralPath $Path -Recurse -Force -File -ErrorAction Stop |
+    $bad = @(Get-ChildItem -LiteralPath $Path -Recurse -Force -ErrorAction Stop |
         Where-Object {
+            $_.Attributes -band [IO.FileAttributes]::ReparsePoint -or
             $_.Name -match '^\.env($|\.)' -or
             $_.Extension -in @('.key', '.pem', '.p12', '.pfx') -or
             $_.FullName -match '[\\/]secrets[\\/]' -or
@@ -103,7 +104,7 @@ function Assert-NoSensitiveFiles([string]$Path) {
         } | Select-Object -First 5)
     if ($bad.Count -gt 0) {
         $names = ($bad | ForEach-Object { $_.FullName }) -join ', '
-        Fail "Refusing to copy sensitive or repository-internal files: $names"
+        Fail "Refusing to copy sensitive, repository-internal, or reparse-point files: $names"
     }
 }
 

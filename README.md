@@ -79,7 +79,7 @@ bash lib/install.sh --local ./my-skill --name my-skill --force
 1. --dry-run performs validation and prints the plan without network, filesystem, link, smoke-test, or memory changes.
 2. --force is required before replacing an existing source or link. Existing source content is moved into CLAUDE_SKILLS_DIR/.backups/.
 3. Skill names, repositories, refs, hashes, and install paths are validated.
-4. Local and downloaded sources containing .env, key files, certificate files, .git, or secrets/ are rejected.
+4. Local and downloaded sources containing .env, key files, certificate files, .git, secrets/, or any symbolic link / reparse point are rejected.
 5. GitHub downloads report the resolved commit and tarball SHA256.
 6. Smoke tests execute downloaded code and therefore require the explicit -RunSmokeTest or --run-smoke-test flag.
 7. Memory updates are disabled by default and require -UpdateMemory or --update-memory.
@@ -164,6 +164,7 @@ Usage is reported as `unknown` unless the host provides a trustworthy invocation
 
 ~~~text
 skill-installer/
+├── .github/workflows/ci.yml
 ├── SKILL.md
 ├── README.md
 ├── SECURITY.md
@@ -207,6 +208,8 @@ The test suite uses temporary directories and never writes to a user's Claude Co
 ## Release notes
 
 Version 0.3.1 adds the installed-skill catalog, search commands, safe multi-line YAML parsing, and English/Chinese compound search filtering. It refreshes the index after successful installation while keeping usage status explicitly unknown when the host exposes no invocation events.
+
+Version 0.4.0 hardens the safety model against nested symbolic links and reparse points, aligns the Bash and PowerShell regression matrices, and adds GitHub Actions CI across Ubuntu, macOS, and Windows.
 
 ## License
 

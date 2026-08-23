@@ -121,6 +121,8 @@ assert_no_sensitive_files() {
     [[ -z "$found" ]] || fail "refusing to copy sensitive file: $found"
     found="$(find "$root" -type d \( -name '.git' -o -name 'secrets' \) -print -quit)"
     [[ -z "$found" ]] || fail "refusing to copy repository-internal directory: $found"
+    found="$(find "$root" -type l -print -quit)"
+    [[ -z "$found" ]] || fail "refusing to copy symbolic link inside skill: $found"
 }
 
 assert_skill_layout() {

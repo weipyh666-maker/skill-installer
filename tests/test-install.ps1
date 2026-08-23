@@ -54,6 +54,25 @@ try {
     Assert-True ($secret.ExitCode -ne 0) 'sensitive local files must be rejected'
     Assert-True ($secret.Output -match 'sensitive') 'sensitive-file failure should be explicit'
 
+    $symlinkFixture = Join-Path $sandbox 'symlink-skill'
+    Copy-Item -LiteralPath $fixture -Destination $symlinkFixture -Recurse -Force
+    $symlinkCreated = $false
+    try {
+        $linkPath = Join-Path $symlinkFixture 'leaked.md'
+        New-Item -ItemType SymbolicLink -Path $linkPath -Target (Join-Path $fixture 'SKILL.md') -ErrorAction Stop | Out-Null
+        $linkItem = Get-Item -LiteralPath $linkPath -Force -ErrorAction Stop
+        if ($linkItem.Attributes -band [IO.FileAttributes]::ReparsePoint) { $symlinkCreated = $true }
+    } catch {
+        $symlinkCreated = $false
+    }
+    if ($symlinkCreated) {
+        $symlink = Invoke-Installer @('-LocalPath', $symlinkFixture, '-Name', 'symlink-skill', '-DryRun')
+        Assert-True ($symlink.ExitCode -ne 0) 'internal symlink must be rejected'
+        Assert-True ($symlink.Output -match 'reparse-point|Refusing') 'symlink rejection should mention reparse-point'
+    } else {
+        Write-Output 'note: this environment cannot create reparse points; skipping symlink regression'
+    }
+
     $fresh = Invoke-Installer @('-LocalPath', $fixture, '-Name', 'fresh-skill')
     Assert-True ($fresh.ExitCode -eq 0) "fresh local install should succeed. Output: $($fresh.Output)"
     Assert-True (Test-Path -LiteralPath (Join-Path $sourceRoot 'fresh-skill\SKILL.md')) 'fresh source should exist'

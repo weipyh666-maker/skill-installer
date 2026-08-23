@@ -35,6 +35,7 @@ Do not use it to discover or rank candidate skills. Use a marketplace or skill-f
 - Never accept path traversal or absolute values as the skill name.
 - Never replace an existing install silently.
 - Never execute downloaded code by default.
+- Reject symbolic links, junctions, or other reparse points inside a downloaded or local source.
 - Prefer an immutable commit SHA and verify ExpectedSha256 when available.
 - Stop if the source does not contain a valid root SKILL.md.
 - Report usage as unknown unless the host provides a trustworthy invocation event.

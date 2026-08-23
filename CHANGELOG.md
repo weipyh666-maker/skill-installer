@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0] — 2026-08-23
+
+### Security
+- Reject any symbolic link or reparse point inside a downloaded or local source. Closed a defense-in-depth gap where a malicious skill could include nested symlinks pointing outside the staged root.
+- The Bash installer uses `find -type l`; the PowerShell installer rejects items carrying `ReparsePoint` during the sensitive-file scan.
+
+### Tests
+- Ported the four PowerShell-only regression cases (sensitive-file rejection, real install with catalog refresh, force-and-backup, idempotent memory update) into `tests/test-install.sh` so both shells share the same matrix.
+- Added symlink-rejection regression to both `tests/test-install.sh` and `tests/test-install.ps1`, with a graceful skip when the runner cannot create real symlinks (for example Windows without Developer Mode).
+
+### CI
+- Added `.github/workflows/ci.yml` running Bash syntax validation, Bash + Python install/catalog tests on Ubuntu and macOS, and PowerShell install/catalog tests on Windows.
+
 ## [0.3.1] — 2026-08-22
 
 ### Fixed
