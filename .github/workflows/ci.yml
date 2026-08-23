@@ -30,7 +30,16 @@ jobs:
         with:
           python-version: '3.x'
       - name: install tests
-        run: bash tests/test-install.sh
+        run: |
+          set +e
+          bash tests/test-install.sh > install-test.log 2>&1
+          code=$?
+          cat install-test.log
+          if [ "$code" -ne 0 ]; then
+            summary="$(tail -c 6000 install-test.log | tr '\n' ' ')"
+            echo "::error title=install tests failure::$summary"
+          fi
+          exit "$code"
       - name: catalog tests
         run: bash tests/test-catalog.sh
       - name: find benchmark tests
