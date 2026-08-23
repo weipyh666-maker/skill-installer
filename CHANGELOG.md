@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.1.0] — 2026-08-23
+
+### Added
+- Upgraded `find` command (`--find` / `-Command find`) with score-ranked scoring, `--limit` / `-Limit` top-result selection, and strict compound AND filtering across bilingual Chinese/English queries.
+- Added dual-mode `doctor` command:
+  - Global mode (`--doctor` / `-Command doctor`) reporting inventory-level `scanned`, `healthy`, `broken`, and `missing` counts.
+  - Single-skill deep inspection mode (`--doctor --name <skill>` / `-Command doctor -Name <skill>`) verifying `Installation`, `Structure`, `Discovery`, and `Trigger quality` with actionable suggestions.
+- Added 4-rule trigger quality diagnostics assessing description length, action verbs, explicit trigger phrases (`Use when...`), and explicit frontmatter `capabilities` / `category` tags.
+- Added 12th trigger condition to `SKILL.md` frontmatter for natural-language skill lookup and intent matching.
+- Added regression tests in `tests/test-catalog.ps1` and `tests/test-catalog.sh` for Chinese/English ranked queries, compound filtering, empty results, single-skill doctor blocks, short-description trigger warnings, and global doctor counts.
+
 ## [2.0.0] — 2026-08-23
 
 ### Changed

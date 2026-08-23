@@ -1,6 +1,6 @@
 ---
 name: skill-manager
-description: Use when the user wants to know what skills their agent has installed, asks what the agent can do, searches for a skill by capability rather than by name, suspects an installed skill is not being triggered automatically, asks whether a skill exists for a task, cannot recall the name of a previously-installed skill, says an installed skill looks broken or is not working, wants to inspect skill health, wants to install/update/remove a skill, wants to scan a directory for previously-installed skills not yet cataloged, or asks for a summary of installed capabilities by category.
+description: Use when the user wants to know what skills their agent has installed, asks what the agent can do, searches for a skill by capability rather than by name, suspects an installed skill is not being triggered automatically, asks whether a skill exists for a task, cannot recall the name of a previously-installed skill, says an installed skill looks broken or is not working, wants to inspect skill health, wants to install/update/remove a skill, wants to scan a directory for previously-installed skills not yet cataloged, asks for a summary of installed capabilities by category, or asks which installed skill can perform a task by natural-language description (e.g. 哪个 skill 能做网页 UI, is there a skill that handles PDFs).
 ---
 
 # Skill Manager

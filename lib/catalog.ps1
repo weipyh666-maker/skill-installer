@@ -4,6 +4,7 @@ param(
     [string]$Command = 'list',
     [string]$Query,
     [string]$Name,
+    [int]$Limit = 10,
     [switch]$Json,
     [string]$RegisterName,
     [string]$RegisterSource,
@@ -31,15 +32,34 @@ $IndexPath = if ($env:CLAUDE_SKILLS_INDEX_PATH) { Get-FullPath $env:CLAUDE_SKILL
 function Get-AliasTerms([string]$Text) {
     $map = [ordered]@{
         '图片' = @('image', 'vision', 'photo', 'screenshot', 'ocr')
-        '识别' = @('recognition', 'ocr', 'understanding', 'detect', 'identify')
+        '图像' = @('image', 'vision', 'photo', 'screenshot', 'ocr')
+        '照片' = @('image', 'vision', 'photo', 'screenshot')
+        '截图' = @('screenshot', 'image', 'vision')
+        '识别' = @('recognition', 'recognize', 'ocr', 'understanding', 'detect', 'identify')
+        '理解' = @('understanding', 'recognition', 'recognize', 'vision')
         'ppt' = @('presentation', 'slides', 'deck', 'pptx')
         '演示' = @('presentation', 'slides', 'deck', 'pptx')
         '幻灯片' = @('presentation', 'slides', 'deck', 'pptx')
         '文档' = @('document', 'docs', 'docx', 'pdf')
+        'pdf' = @('pdf', 'document', 'docs')
+        'word' = @('docx', 'document', 'word')
         '表格' = @('spreadsheet', 'xlsx', 'excel', 'csv')
-        '网页' = @('web', 'website', 'browser', 'frontend')
+        'excel' = @('xlsx', 'spreadsheet', 'excel', 'csv')
+        '网页' = @('web', 'website', 'browser', 'frontend', 'ui', 'page')
+        '前端' = @('frontend', 'ui', 'web', 'interface', 'design')
+        '界面' = @('ui', 'interface', 'frontend', 'gui')
+        'ui' = @('ui', 'interface', 'frontend', 'gui', 'design')
+        '设计' = @('design', 'create', 'craft', 'build')
+        '做' = @('design', 'create', 'build', 'make', 'develop')
+        '制作' = @('create', 'build', 'design', 'make')
         '代码' = @('code', 'coding', 'development', 'programming')
+        '开发' = @('develop', 'development', 'code', 'coding', 'build')
+        '编程' = @('programming', 'code', 'coding', 'develop')
         '调试' = @('debug', 'debugging', 'diagnosis', 'bug')
+        '测试' = @('test', 'testing', 'qa', 'e2e')
+        '诊断' = @('diagnose', 'diagnosis', 'debug', 'health')
+        '搜索' = @('search', 'research', 'query', 'find')
+        '调研' = @('research', 'survey', 'search', 'investigate')
         '技能' = @('skill', 'agent', 'workflow')
     }
     $terms = [System.Collections.Generic.List[string]]::new()
@@ -118,7 +138,6 @@ function Get-Capabilities([string]$Frontmatter, [string]$Name, [string]$Category
         $parts = $trimmed -split '[,;]' | ForEach-Object { $_.Trim().Trim('"').Trim("'") } | Where-Object { $_ }
         if ($parts.Count -gt 0) { return @($parts | Select-Object -Unique) }
     }
-    # Derive capabilities from keywords / category
     $derived = [System.Collections.Generic.List[string]]::new()
     $derived.Add($Name)
     $derived.Add($Category)
@@ -236,7 +255,6 @@ function Build-Index {
 
         $old = Get-PreviousEntry $oldIndex $entry.name $entry.install_name
         if ($old) {
-            # Migrate v1/old data without losing metadata
             if ($old.discovered_at) { $entry.discovered_at = $old.discovered_at }
             elseif ($old.installed_at) { $entry.discovered_at = $old.installed_at }
 
@@ -256,7 +274,6 @@ function Build-Index {
         $entries.Add([pscustomobject]$entry)
     }
 
-    # Handle missing entries (were in index but no longer on disk)
     if ($oldIndex -and $oldIndex.skills) {
         foreach ($oldSkill in $oldIndex.skills) {
             if (-not $scannedNames.Contains($oldSkill.name) -and -not ($oldSkill.install_name -and $scannedNames.Contains($oldSkill.install_name))) {
@@ -328,26 +345,48 @@ function Get-Index {
 
 function Get-SearchScore([object]$Entry, [string]$SearchQuery) {
     $terms = Get-AliasTerms $SearchQuery
-    $nameText = $Entry.name.ToLowerInvariant()
-    $searchText = "$($Entry.name) $($Entry.install_name) $($Entry.description) $($Entry.keywords -join ' ') $($Entry.capabilities -join ' ')".ToLowerInvariant()
-    $isChineseCompound = $SearchQuery -match '[\u3400-\u9fff]' -and $SearchQuery -match '(图片|图像|照片|截图)' -and $SearchQuery -match '(识别|理解|OCR)'
-    $imageWords = @('image', 'vision', 'photo', 'screenshot', 'picture')
-    $recogWords = @('recogni', 'ocr', 'detect', 'identif', 'understand', 'classif')
+    $nameLower = $Entry.name.ToLowerInvariant()
+    $installLower = if ($Entry.install_name) { $Entry.install_name.ToLowerInvariant() } else { '' }
+    $descLower = if ($Entry.description) { $Entry.description.ToLowerInvariant() } else { '' }
+    $kwList = @($Entry.keywords | ForEach-Object { $_.ToLowerInvariant() })
+    $capList = @($Entry.capabilities | ForEach-Object { $_.ToLowerInvariant() })
+    $catLower = if ($Entry.category) { $Entry.category.ToLowerInvariant() } else { '' }
+    $searchText = "$nameLower $installLower $descLower $($kwList -join ' ') $($capList -join ' ') $catLower".ToLowerInvariant()
+
+    # Compound AND filters
+    $imageWords = @('image', 'vision', 'photo', 'screenshot', 'picture', '图片', '图像', '照片', '截图')
+    $recogWords = @('recogni', 'ocr', 'detect', 'identif', 'understand', 'classif', '识别', '理解', '分类')
     $queryLower = $SearchQuery.ToLowerInvariant()
-    $hasImage = ($imageWords | Where-Object { $queryLower.Contains($_) }).Count -gt 0
-    $hasRecog = ($recogWords | Where-Object { $queryLower.Contains($_) }).Count -gt 0
-    if ($isChineseCompound -or ($hasImage -and $hasRecog)) {
-        $imageHit = $false
-        $recognitionHit = $false
-        foreach ($term in @('image', 'vision', 'photo', 'screenshot', 'picture')) { if ($searchText.Contains($term)) { $imageHit = $true } }
-        foreach ($term in @('recogni', 'ocr', 'detect', 'identif', 'understand', 'classif')) { if ($searchText.Contains($term)) { $recognitionHit = $true } }
-        if (-not ($imageHit -and $recognitionHit)) { return 0 }
+
+    $qHasImage = ($imageWords | Where-Object { $queryLower.Contains($_) }).Count -gt 0
+    $qHasRecog = ($recogWords | Where-Object { $queryLower.Contains($_) }).Count -gt 0
+    if ($qHasImage -and $qHasRecog) {
+        $tHasImage = ($imageWords | Where-Object { $searchText.Contains($_) }).Count -gt 0
+        $tHasRecog = ($recogWords | Where-Object { $searchText.Contains($_) }).Count -gt 0
+        if (-not ($tHasImage -and $tHasRecog)) { return 0 }
     }
+
+    $uiWords = @('web', 'website', 'frontend', 'ui', 'interface', 'page', '网页', '前端', '界面')
+    $designWords = @('design', 'create', 'build', 'craft', 'make', '设计', '做', '制作', '构建')
+    $qHasUI = ($uiWords | Where-Object { $queryLower.Contains($_) }).Count -gt 0
+    $qHasDesign = ($designWords | Where-Object { $queryLower.Contains($_) }).Count -gt 0
+    if ($qHasUI -and $qHasDesign) {
+        $tHasUI = ($uiWords | Where-Object { $searchText.Contains($_) }).Count -gt 0
+        $tHasDesign = ($designWords | Where-Object { $searchText.Contains($_) }).Count -gt 0
+        if (-not ($tHasUI -and $tHasDesign)) { return 0 }
+    }
+
     $score = 0
+    if ($nameLower -eq $queryLower) { $score += 20 }
+    elseif ($nameLower.Contains($queryLower)) { $score += 15 }
+
     foreach ($term in $terms) {
-        if ($nameText -eq $term) { $score += 12 }
-        elseif ($nameText.Contains($term)) { $score += 8 }
-        elseif ($searchText.Contains($term)) { $score += 3 }
+        if ($nameLower -eq $term) { $score += 12 }
+        elseif ($nameLower.Contains($term)) { $score += 8 }
+        if ($descLower.Contains($term)) { $score += 3 }
+        if ($kwList -contains $term -or ($kwList | Where-Object { $_.Contains($term) }).Count -gt 0) { $score += 3 }
+        if ($capList -contains $term -or ($capList | Where-Object { $_.Contains($term) }).Count -gt 0) { $score += 3 }
+        if ($catLower -eq $term -or $catLower.Contains($term)) { $score += 5 }
     }
     return $score
 }
@@ -437,6 +476,197 @@ function Write-Show([object]$Entry) {
     Write-Host "invocation_hint: Ask Claude Code to use the '$($Entry.name)' skill for a matching task. Automatic invocation is not observable by this catalog."
 }
 
+function Invoke-DoctorGlobal([object]$Index) {
+    $skills = @($Index.skills)
+    $scannedCount = $skills.Count
+    $brokenList = @($skills | Where-Object { $_.status -ne 'ok' -or $_.health -eq 'broken' })
+    $missingList = @($skills | Where-Object { $_.health -eq 'missing' })
+    $healthyCount = $scannedCount - $brokenList.Count - $missingList.Count
+    if ($healthyCount -lt 0) { $healthyCount = 0 }
+
+    Write-Host "doctor: scanned $scannedCount skills"
+    Write-Host "  healthy: $healthyCount"
+    if ($brokenList.Count -gt 0) {
+        $brokenNames = (@($brokenList | ForEach-Object name)) -join ', '
+        Write-Host "  broken: $($brokenList.Count) ($brokenNames)"
+    } else {
+        Write-Host "  broken: 0"
+    }
+    if ($missingList.Count -gt 0) {
+        $missingNames = (@($missingList | ForEach-Object name)) -join ', '
+        Write-Host "  missing: $($missingList.Count) ($missingNames)"
+    } else {
+        Write-Host "  missing: 0"
+    }
+
+    if ($brokenList.Count -gt 0 -or $missingList.Count -gt 0) {
+        exit 1
+    }
+}
+
+function Invoke-DoctorSingle([string]$SkillName, [object]$Index) {
+    $entry = @($Index.skills | Where-Object { $_.name -eq $SkillName -or $_.install_name -eq $SkillName } | Select-Object -First 1)[0]
+    $dirName = if ($entry -and $entry.install_name) { $entry.install_name } else { $SkillName }
+
+    $sourceDisk = Join-Path $SkillsDir $dirName
+    $linkDisk = Join-Path $LinkDir $dirName
+    $sourceFile = Join-Path $sourceDisk 'SKILL.md'
+    $linkFile = Join-Path $linkDisk 'SKILL.md'
+
+    $sourceExists = Test-Path -LiteralPath $sourceDisk -PathType Container
+    $linkExists = Test-Path -LiteralPath $linkDisk
+    $sourceFileExists = Test-Path -LiteralPath $sourceFile -PathType Leaf
+    $linkFileExists = Test-Path -LiteralPath $linkFile -PathType Leaf
+
+    $rawContent = ''
+    if ($sourceFileExists) {
+        $rawContent = Get-Content -Raw -LiteralPath $sourceFile
+    } elseif ($linkFileExists) {
+        $rawContent = Get-Content -Raw -LiteralPath $linkFile
+    }
+
+    $frontmatterMatch = [regex]::Match($rawContent, '(?ms)^---\s*\r?\n(.*?)\r?\n---(?:\s*\r?\n|$)')
+    $frontmatter = if ($frontmatterMatch.Success) { $frontmatterMatch.Groups[1].Value } else { '' }
+
+    $declaredName = Get-FrontmatterField $frontmatter 'name'
+    $declaredDesc = Get-FrontmatterField $frontmatter 'description'
+    $declaredCat = Get-FrontmatterField $frontmatter 'category'
+    $declaredCaps = Get-FrontmatterField $frontmatter 'capabilities'
+
+    $suggestions = [System.Collections.Generic.List[string]]::new()
+
+    Write-Host "$SkillName`n"
+
+    Write-Host "Installation"
+    if ($sourceExists) {
+        Write-Host "  ✓ Source at `$CLAUDE_SKILLS_DIR/$dirName"
+    } else {
+        Write-Host "  ✗ Source missing at `$CLAUDE_SKILLS_DIR/$dirName"
+    }
+    if ($linkExists) {
+        Write-Host "  ✓ Link at `$CLAUDE_SKILLS_LINK_DIR/$dirName"
+    } else {
+        Write-Host "  ✗ Link missing at `$CLAUDE_SKILLS_LINK_DIR/$dirName"
+    }
+    if ($sourceFileExists -and $linkFileExists) {
+        $srcHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceFile).Hash
+        $lnkHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $linkFile).Hash
+        if ($srcHash -eq $lnkHash) {
+            Write-Host "  ✓ SKILL.md hashes match"
+        } else {
+            Write-Host "  ✗ SKILL.md hashes differ between source and link"
+        }
+    } elseif ($sourceFileExists -or $linkFileExists) {
+        Write-Host "  ⚠ Single copy found (no link hash comparison)"
+    } else {
+        Write-Host "  ✗ SKILL.md missing"
+    }
+    Write-Host ""
+
+    Write-Host "Structure"
+    if ($sourceFileExists -or $linkFileExists) {
+        Write-Host "  ✓ SKILL.md present"
+    } else {
+        Write-Host "  ✗ SKILL.md missing"
+    }
+    if ($frontmatterMatch.Success) {
+        Write-Host "  ✓ YAML frontmatter valid"
+    } else {
+        Write-Host "  ✗ YAML frontmatter missing or invalid"
+    }
+    if ($declaredName) {
+        Write-Host "  ✓ name = $declaredName"
+    } else {
+        Write-Host "  ✗ name field missing in frontmatter"
+    }
+    if ($declaredDesc) {
+        Write-Host "  ✓ description present"
+    } else {
+        Write-Host "  ✗ description missing in frontmatter"
+    }
+    Write-Host ""
+
+    Write-Host "Discovery"
+    if ($linkExists) {
+        Write-Host "  ✓ Claude link path visible"
+    } else {
+        Write-Host "  ✗ Claude link path not visible"
+    }
+    if ($rawContent) {
+        Write-Host "  ✓ File readable"
+    } else {
+        Write-Host "  ✗ File unreadable or empty"
+    }
+    Write-Host ""
+
+    Write-Host "Trigger quality"
+    $triggerWarnings = 0
+    if ($declaredDesc) {
+        $words = @($declaredDesc -split '\s+' | Where-Object { $_ })
+        if ($declaredDesc.Length -lt 20) {
+            Write-Host "  ⚠ Description too short (< 20 characters)"
+            $suggestions.Add('Expand description to at least 20 characters explaining what the skill does and when to use it')
+            $triggerWarnings++
+        } else {
+            Write-Host "  ✓ Description has $($words.Count) words"
+        }
+
+        if ($declaredDesc -match '^(?i)use when') {
+            Write-Host "  ✓ Description starts with explicit trigger phrase (`"Use when...`")"
+        } elseif ($declaredDesc -match '(?i)when|当用户|当|用于') {
+            Write-Host "  ✓ Description contains trigger phrase (`"when`")"
+        } else {
+            Write-Host "  ⚠ Description doesn't start with `"Use when...`" — Claude's auto-discovery benefits from explicit trigger phrases"
+            $suggestions.Add('Start description with "Use when the user wants to..." for better auto-discovery')
+            $triggerWarnings++
+        }
+
+        $actionWords = @('use', 'create', 'analyze', 'build', 'check', 'inspect', 'run', 'extract', 'convert', 'manage', 'format', 'test', 'search', 'query', 'deploy', 'fix', 'scaffold', 'design', 'write', 'edit', 'review', 'translate', 'summarize', 'crawl', 'scrape', 'monitor', '转换', '提取', '创建', '分析', '构建', '检查', '运行', '调试', '搜索', '编写', '审查', '设计', '做')
+        $descLower = $declaredDesc.ToLowerInvariant()
+        $hasAction = $false
+        foreach ($act in $actionWords) {
+            if ($descLower.Contains($act)) { $hasAction = $true; break }
+        }
+        if (-not $hasAction) {
+            Write-Host "  ⚠ Description lacks clear action verbs (use, create, analyze, build, inspect, convert...)"
+            $suggestions.Add('Include specific action verbs (e.g. create, convert, analyze) in the description')
+            $triggerWarnings++
+        }
+    } else {
+        Write-Host "  ✗ No description found to assess trigger quality"
+        $triggerWarnings++
+    }
+
+    if ($declaredCaps) {
+        Write-Host "  ✓ Capabilities declared: $declaredCaps"
+    } else {
+        Write-Host "  ⚠ No explicit capabilities tags in frontmatter — auto-derived only"
+        $suggestions.Add('Add "capabilities:" to SKILL.md frontmatter for explicit tagging')
+        $triggerWarnings++
+    }
+
+    $inferredCat = if ($entry -and $entry.category) { $entry.category } else { 'other' }
+    if ($declaredCat) {
+        Write-Host "  ✓ Category declared: $declaredCat"
+    } else {
+        Write-Host "  ⚠ No explicit category in frontmatter — auto-bucketed to $inferredCat"
+        $suggestions.Add("Add `"category: $inferredCat`" to SKILL.md frontmatter")
+        $triggerWarnings++
+    }
+
+    if ($triggerWarnings -eq 0) {
+        Write-Host "  ✓ Trigger description looks Claude-discoverable"
+    }
+    Write-Host ""
+
+    if ($suggestions.Count -gt 0) {
+        Write-Host "Suggestions:"
+        foreach ($s in $suggestions) {
+            Write-Host "  - $s"
+        }
+    }
+}
+
 $index = Get-Index
 switch ($Command) {
     'refresh' {
@@ -453,12 +683,34 @@ switch ($Command) {
     }
     'find' {
         if ([string]::IsNullOrWhiteSpace($Query)) { throw 'find needs -Query.' }
-        $matches = @($index.skills | ForEach-Object {
+        $scored = @($index.skills | ForEach-Object {
             $score = Get-SearchScore $_ $Query
             if ($score -gt 0) { [pscustomobject]@{ Score = $score; Entry = $_ } }
-        } | Sort-Object Score -Descending | ForEach-Object { $_.Entry })
-        if ($matches.Count -eq 0) { Write-Host "No matching skills for '$Query'."; exit 1 }
-        Write-Entries $matches
+        } | Sort-Object Score -Descending)
+
+        if ($scored.Count -eq 0) {
+            Write-Host "No matching skills for `"$Query`"."
+            exit 0
+        }
+
+        if ($Json) {
+            $scored | ForEach-Object { $_.Entry } | ConvertTo-Json -Depth 8
+            exit 0
+        }
+
+        $topList = @($scored | Select-Object -First $Limit)
+        Write-Host "Matches for `"$Query`":`n"
+        for ($i = 0; $i -lt $topList.Count; $i++) {
+            $item = $topList[$i]
+            $entry = $item.Entry
+            $scoreVal = $item.Score
+            $num = $i + 1
+            $desc = if ($entry.description) { $entry.description } else { '(no description)' }
+            if ($desc.Length -gt 75) { $desc = $desc.Substring(0, 72) + '...' }
+            Write-Host ("  {0,2}. {1,-28} (score: {2})" -f $num, $entry.name, $scoreVal)
+            Write-Host "     $desc`n"
+        }
+        Write-Host "Found $($scored.Count) matches. Showing top $($topList.Count)."
     }
     'show' {
         if ([string]::IsNullOrWhiteSpace($Name)) { throw 'show needs -Name.' }
@@ -468,15 +720,11 @@ switch ($Command) {
     }
     'doctor' {
         $fresh = Build-Index
-        $broken = @($fresh.skills | Where-Object { $_.status -ne 'ok' -or $_.health -in @('broken', 'missing') })
-        $duplicates = @($fresh.skills | Group-Object name | Where-Object Count -gt 1)
-        if ($broken.Count -gt 0 -or $duplicates.Count -gt 0) {
-            if ($broken.Count -gt 0) { Write-Host "broken: $((@($broken | ForEach-Object name)) -join ', ')" }
-            if ($duplicates.Count -gt 0) { Write-Host "duplicates: $((@($duplicates | ForEach-Object Name)) -join ', ')" }
-            Write-Host "doctor: issues found; $($fresh.skills.Count) skills scanned"
-            exit 1
+        if ($Name) {
+            Invoke-DoctorSingle $Name $fresh
+        } else {
+            Invoke-DoctorGlobal $fresh
         }
-        Write-Host "doctor: OK; $($fresh.skills.Count) skills indexed; usage status is unknown unless the host provides invocation events."
     }
 }
 

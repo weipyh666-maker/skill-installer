@@ -49,14 +49,18 @@ pwsh -File lib\catalog.ps1 -Command capabilities
 # Full tabular listing
 pwsh -File lib\catalog.ps1 -Command list
 
-# Search by capability / intent (bilingual English + Chinese)
+# Search by capability / intent with score ranking and limit
+pwsh -File lib\catalog.ps1 -Command find -Query '做网页 UI' -Limit 5
 pwsh -File lib\catalog.ps1 -Command find -Query '图片识别'
 
 # Inspect detailed metadata, provenance, and Claude visibility
 pwsh -File lib\catalog.ps1 -Command show -Name skill-name
 
-# Run health check and diagnosis
+# Run global health check and inventory diagnosis
 pwsh -File lib\catalog.ps1 -Command doctor
+
+# Run single skill deep inspection and trigger quality check
+pwsh -File lib\catalog.ps1 -Command doctor -Name frontend-design
 
 # Re-scan filesystem and refresh catalog index
 pwsh -File lib\catalog.ps1 -Command refresh
@@ -69,14 +73,18 @@ bash lib/catalog.sh --capabilities
 # Full tabular listing
 bash lib/catalog.sh --list
 
-# Search by capability / intent (bilingual English + Chinese)
+# Search by capability / intent with score ranking and limit
+bash lib/catalog.sh --find '做网页 UI' --limit 5
 bash lib/catalog.sh --find 'image recognition'
 
 # Inspect detailed metadata, provenance, and Claude visibility
 bash lib/catalog.sh --show skill-name
 
-# Run health check and diagnosis
+# Run global health check and inventory diagnosis
 bash lib/catalog.sh --doctor
+
+# Run single skill deep inspection and trigger quality check
+bash lib/catalog.sh --doctor --name frontend-design
 
 # Re-scan filesystem and refresh catalog index
 bash lib/catalog.sh --refresh
@@ -132,9 +140,9 @@ The manager maintains a cache index at `CLAUDE_SKILLS_DIR/installed-skills-index
 |---|---|---|---|
 | Capabilities | `-Command capabilities` | `--capabilities` | Summary grouped by category with broken count |
 | List | `-Command list` | `--list` | Tabular skill listing |
-| Find | `-Command find -Query value` | `--find value` | Bilingual keyword and alias search |
+| Find | `-Command find -Query value [-Limit N]` | `--find value [--limit N]` | Scored bilingual search with compound AND filtering |
 | Show | `-Command show -Name value` | `--show value` | Deep inspection of skill provenance and visibility |
-| Doctor | `-Command doctor` | `--doctor` | Diagnosis of broken frontmatter and duplicates |
+| Doctor | `-Command doctor [-Name value]` | `--doctor [--name value]` | Global inventory check or single-skill trigger quality diagnosis |
 | Refresh | `-Command refresh` | `--refresh` | Rescan filesystem and update catalog index |
 
 ## Installer options
@@ -215,6 +223,8 @@ bash -n lib/catalog.sh
 The test suite uses temporary directories and never writes to a user's Claude Code directory.
 
 ## Release notes
+
+Version 2.1.0 adds score-ranked bilingual capability search (`--find` / `-Query` with `--limit`), dual-mode inventory diagnosis (`--doctor` global & `--doctor --name` single-skill trigger quality inspection with actionable suggestions), and a 12th trigger condition for intent matching.
 
 Version 2.0.0 evolves `skill-installer` into `skill-manager` with Catalog Schema v2, capability grouping (`--capabilities`), deep filesystem scanning for manual skills, missing health retention, and enhanced diagnostics.
 

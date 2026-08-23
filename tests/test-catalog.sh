@@ -130,12 +130,61 @@ bash "$CATALOG" --refresh >/dev/null
 grep -q '"name": "slides-skill"' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
 grep -q '"health": "missing"' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
 
+# V2.1 Enhancements
+mkdir -p "$CLAUDE_SKILLS_LINK_DIR/frontend-design" "$CLAUDE_SKILLS_LINK_DIR/short-skill"
+cat > "$CLAUDE_SKILLS_LINK_DIR/frontend-design/SKILL.md" <<'EOF'
+---
+name: frontend-design
+description: Create high-quality frontend interfaces with web UI layouts and styles.
+---
+# frontend-design
+EOF
+
+cat > "$CLAUDE_SKILLS_LINK_DIR/short-skill/SKILL.md" <<'EOF'
+---
+name: short-skill
+description: Short desc
+---
+# short-skill
+EOF
+
+bash "$CATALOG" --refresh >/dev/null
+
+# 1. Chinese find query
+find_ui_output="$(bash "$CATALOG" --find "做网页 UI")"
+[[ "$find_ui_output" =~ "frontend-design" ]]
+[[ "$find_ui_output" =~ "score:" ]]
+
+# 2. English image recognition compound AND filtering
+find_img_output="$(bash "$CATALOG" --find "image recognition")"
+[[ "$find_img_output" =~ "image-skill" ]]
+[[ ! "$find_img_output" =~ "document-skill" ]]
+
+# 3. Empty find query
+find_empty_output="$(bash "$CATALOG" --find "nonexistent-query-xyz")"
+[[ "$find_empty_output" =~ 'No matching skills for "nonexistent-query-xyz"' ]]
+
+# 4. Doctor single skill
+doctor_single_output="$(bash "$CATALOG" --doctor --name frontend-design)"
+[[ "$doctor_single_output" =~ "Installation" ]]
+[[ "$doctor_single_output" =~ "Structure" ]]
+[[ "$doctor_single_output" =~ "Discovery" ]]
+[[ "$doctor_single_output" =~ "Trigger quality" ]]
+
+# 5. Doctor trigger quality check on short description
+doctor_short_output="$(bash "$CATALOG" --doctor --name short-skill)"
+[[ "$doctor_short_output" =~ "Description too short" ]]
+
+# 6. Doctor global output format
 set +e
 doctor_output="$(bash "$CATALOG" --doctor)"
 doctor_status=$?
 set -e
 [[ "$doctor_status" -ne 0 ]]
 doctor_output="${doctor_output//$'\r'/}"
-[[ "$doctor_output" == *broken-skill* ]]
+[[ "$doctor_output" =~ "doctor: scanned" ]]
+[[ "$doctor_output" =~ "healthy:" ]]
+[[ "$doctor_output" =~ "broken:" ]]
+[[ "$doctor_output" =~ "missing:" ]]
 
 echo 'PASS: catalog regression tests'

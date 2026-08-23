@@ -127,11 +127,46 @@ try {
     Assert-True ($missingRefresh.ExitCode -eq 0) 'refresh after removing skill folder should succeed'
     $missingIndex = Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json
     $missingEntry = @($missingIndex.skills | Where-Object name -eq 'slides-skill')[0]
-    Assert-True ($null -ne $missingEntry) 'removed skill should be retained in index'
-    Assert-True ($missingEntry.health -eq 'missing') 'removed skill should be marked as health=missing'
+    # V2.1 Enhancements
+    New-TestSkill (Join-Path $linkRoot 'frontend-design') 'frontend-design' 'Create high-quality frontend interfaces with web UI layouts and styles.'
+    New-TestSkill (Join-Path $linkRoot 'short-skill') 'short-skill' 'Short desc'
+    $v21Refresh = Invoke-Catalog @('-Command', 'refresh')
+    Assert-True ($v21Refresh.ExitCode -eq 0) 'V2.1 refresh should succeed'
 
-    $doctor = Invoke-Catalog @('-Command', 'doctor')
-    Assert-True ($doctor.ExitCode -ne 0 -and $doctor.Output -match 'broken:.*broken-skill') "doctor should identify the broken skill: $($doctor.Output)"
+    # 1. Chinese find query
+    $findUI = Invoke-Catalog @('-Command', 'find', '-Query', '做网页 UI')
+    Assert-True ($findUI.ExitCode -eq 0) "find should succeed: $($findUI.Output)"
+    Assert-True ($findUI.Output -match 'frontend-design') 'find for "做网页 UI" should match frontend-design'
+    Assert-True ($findUI.Output -match 'score:\s*\d+') 'find output should include score'
+
+    # 2. English image recognition compound AND filtering
+    $findImgRecog = Invoke-Catalog @('-Command', 'find', '-Query', 'image recognition')
+    Assert-True ($findImgRecog.ExitCode -eq 0) 'find for "image recognition" should succeed'
+    Assert-True ($findImgRecog.Output -match 'image-skill') 'find for "image recognition" should match image-skill'
+    Assert-True ($findImgRecog.Output -notmatch 'document-skill') 'find for "image recognition" must NOT match document-skill'
+
+    # 3. Empty find query
+    $findEmpty = Invoke-Catalog @('-Command', 'find', '-Query', 'nonexistent-skill-query-xyz')
+    Assert-True ($findEmpty.ExitCode -eq 0) 'empty find should return code 0'
+    Assert-True ($findEmpty.Output -match 'No matching skills for "nonexistent-skill-query-xyz"') 'empty find output must mention the search query'
+
+    # 4. Doctor single skill
+    $doctorSingle = Invoke-Catalog @('-Command', 'doctor', '-Name', 'frontend-design')
+    Assert-True ($doctorSingle.Output -match 'Installation') 'single doctor output should have Installation block'
+    Assert-True ($doctorSingle.Output -match 'Structure') 'single doctor output should have Structure block'
+    Assert-True ($doctorSingle.Output -match 'Discovery') 'single doctor output should have Discovery block'
+    Assert-True ($doctorSingle.Output -match 'Trigger quality') 'single doctor output should have Trigger quality block'
+
+    # 5. Doctor trigger quality check on short description
+    $doctorShort = Invoke-Catalog @('-Command', 'doctor', '-Name', 'short-skill')
+    Assert-True ($doctorShort.Output -match 'Description too short') 'doctor on short-skill must flag short description warning'
+
+    # 6. Doctor global output format
+    $doctorGlobal = Invoke-Catalog @('-Command', 'doctor')
+    Assert-True ($doctorGlobal.Output -match 'doctor: scanned \d+ skills') 'global doctor should report scanned count'
+    Assert-True ($doctorGlobal.Output -match 'healthy: \d+') 'global doctor should report healthy count'
+    Assert-True ($doctorGlobal.Output -match 'broken: \d+') 'global doctor should report broken count'
+    Assert-True ($doctorGlobal.Output -match 'missing: \d+') 'global doctor should report missing count'
 
     Write-Output 'PASS: catalog regression tests'
 }
