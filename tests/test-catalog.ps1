@@ -93,6 +93,43 @@ try {
     Assert-True ($show.ExitCode -eq 0 -and $show.Output -match 'presentations') 'show should display the description'
     Assert-True ($show.Output -match 'usage.*unknown') 'show should not pretend to know invocation state'
 
+    # V2.0 Schema & Capabilities & Manual Scan Verification
+    Assert-True ($index.schema_version -eq 2) 'schema_version must be 2'
+    $imgEntry = @($index.skills | Where-Object name -eq 'image-skill')[0]
+    Assert-True ($null -ne $imgEntry.capabilities -and $imgEntry.capabilities.Count -gt 0) 'capabilities array must exist'
+    Assert-True ($null -ne $imgEntry.keywords -and $imgEntry.keywords.Count -gt 0) 'keywords array must exist'
+    Assert-True ($imgEntry.category -eq 'media') "image-skill category should be media, got $($imgEntry.category)"
+    Assert-True ($null -ne $imgEntry.discovered_at) 'discovered_at timestamp must exist'
+    Assert-True ($imgEntry.agents.claude.visible -eq $true) 'agents.claude.visible must be true for linked skill'
+
+    # Manual skill discovery test
+    New-TestSkill (Join-Path $sourceRoot 'manual-skill') 'manual-skill' 'Use when testing manual skill placement.'
+    $manualRefresh = Invoke-Catalog @('-Command', 'refresh')
+    Assert-True ($manualRefresh.ExitCode -eq 0) 'manual skill refresh should succeed'
+    $manualIndex = Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json
+    $manualEntry = @($manualIndex.skills | Where-Object name -eq 'manual-skill')[0]
+    Assert-True ($null -ne $manualEntry) 'scan should discover manually added skill in sources directory'
+    Assert-True ($manualEntry.source -eq 'unknown') 'manually placed skill source must be unknown'
+    Assert-True ($manualEntry.provenance -eq 'unknown') 'manually placed skill provenance must be unknown'
+    Assert-True ($null -ne $manualEntry.discovered_at) 'manually placed skill must receive discovered_at timestamp'
+
+    # Capabilities command test
+    $capOutput = Invoke-Catalog @('-Command', 'capabilities')
+    Assert-True ($capOutput.ExitCode -eq 0) "capabilities command should succeed: $($capOutput.Output)"
+    Assert-True ($capOutput.Output -match 'Your Agent currently has \d+ Skills \(\d+ broken\)') 'capabilities should report total and broken count'
+    Assert-True ($capOutput.Output -match 'Documents \(\d+\)' -or $capOutput.Output -match 'Media \(\d+\)') 'capabilities should group by categories'
+    Assert-True ($capOutput.Output -match 'Broken \(\d+\)') 'capabilities should include Broken category section'
+    Assert-True ($capOutput.Output -match 'broken-skill') 'capabilities Broken section should contain broken-skill'
+
+    # Missing skill retention test
+    Remove-Item -LiteralPath (Join-Path $linkRoot 'slides-skill') -Recurse -Force
+    $missingRefresh = Invoke-Catalog @('-Command', 'refresh')
+    Assert-True ($missingRefresh.ExitCode -eq 0) 'refresh after removing skill folder should succeed'
+    $missingIndex = Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json
+    $missingEntry = @($missingIndex.skills | Where-Object name -eq 'slides-skill')[0]
+    Assert-True ($null -ne $missingEntry) 'removed skill should be retained in index'
+    Assert-True ($missingEntry.health -eq 'missing') 'removed skill should be marked as health=missing'
+
     $doctor = Invoke-Catalog @('-Command', 'doctor')
     Assert-True ($doctor.ExitCode -ne 0 -and $doctor.Output -match 'broken:.*broken-skill') "doctor should identify the broken skill: $($doctor.Output)"
 

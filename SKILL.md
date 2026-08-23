@@ -1,46 +1,48 @@
 ---
-name: skill-installer
-description: Use when installing, downloading, refreshing, or linking a Claude Code skill from a GitHub repository or local directory, especially when the source should be validated, optionally pinned, and installed without an interactive session.
+name: skill-manager
+description: Use when the user wants to know what skills their agent has installed, asks what the agent can do, searches for a skill by capability rather than by name, suspects an installed skill is not being triggered automatically, asks whether a skill exists for a task, cannot recall the name of a previously-installed skill, says an installed skill looks broken or is not working, wants to inspect skill health, wants to install/update/remove a skill, wants to scan a directory for previously-installed skills not yet cataloged, or asks for a summary of installed capabilities by category.
 ---
 
-# Skill Installer
+# Skill Manager
 
 ## Core principle
 
-Treat every downloaded repository as untrusted until its source, ref, files, and install target are validated. Keep destructive and executable side effects explicit.
+Know what skills your agent has installed, organize and inspect them by capability and category, diagnose broken or unlinked skills, and install or update skills safely. Treat downloaded code as untrusted until validated.
 
 ## Use this skill when
 
-- The user asks to install, download, refresh, or link a Claude Code skill.
-- The source is a GitHub repository, tag, commit, or local skill directory.
-- The user needs a dry-run, backup, digest check, or source/link verification.
-
-Do not use it to discover or rank candidate skills. Use a marketplace or skill-finder first, then pass the selected repository here.
+- The user wants an overview of available capabilities or installed skills.
+- The user asks what the agent can do or wants to search for a skill by capability.
+- The user cannot recall the exact name of a previously installed skill.
+- The user suspects an installed skill is broken, missing, or not being triggered by Claude Code.
+- The user wants to scan `~/.claude/skills` or `~/Claude-Code` for previously installed or manual skills.
+- The user wants to install, update, refresh, or link a skill safely from GitHub or a local directory.
 
 ## Workflow
 
-1. Validate exactly one source mode: GitHub, local directory, or existing source link refresh.
-2. Validate the skill name, repository, ref, digest, and path boundaries.
-3. Reject local or downloaded sources containing secrets, key material, .git, or secrets/.
-4. Run a dry-run when the target or source is unfamiliar.
-5. Stage the source before replacing an existing install; require --force and keep a backup.
-6. Create a junction or symlink and report copy fallback explicitly.
-7. Validate SKILL.md frontmatter and compare source/link hashes.
-8. Run a smoke test only when the user explicitly requests it for a reviewed source.
-9. Update memory only when explicitly requested, and do so idempotently.
-10. Refresh the installed-skill catalog after success unless the user opts out.
+1. **Querying Capabilities & Inventory**:
+   - Run `catalog.ps1 -Command capabilities` (or `catalog.sh --capabilities`) to view skills grouped by category with health and broken counts.
+   - Run `catalog.ps1 -Command list` (or `catalog.sh --list`) for full tabular index output.
+   - Run `catalog.ps1 -Command find -Query <keyword>` (or `catalog.sh --find <query>`) for bilingual keyword search.
+   - Run `catalog.ps1 -Command show -Name <skill>` (or `catalog.sh --show <skill>`) to inspect deep metadata, provenance, and Claude visibility.
+
+2. **Scanning & Diagnosing**:
+   - Run `catalog.ps1 -Command refresh` (or `catalog.sh --refresh`) to scan local directories, ingest manual skills, and update `installed-skills-index.json`.
+   - Run `catalog.ps1 -Command doctor` (or `catalog.sh --doctor`) to detect broken frontmatter, missing files, and duplicate skill names.
+
+3. **Installing & Linking**:
+   - Install public GitHub skills directly (anonymous fallback supported) or use `-RequireAuth` / `--require-auth` for private repos.
+   - Pin refs and check hashes where available (`-Ref`, `-ExpectedSha256`).
+   - Back up existing versions automatically on `-Force`.
 
 ## Safety gates
 
-- Never accept path traversal or absolute values as the skill name.
-- Never replace an existing install silently.
-- Never execute downloaded code by default.
-- Reject symbolic links, junctions, or other reparse points inside a downloaded or local source.
-- Prefer an immutable commit SHA and verify ExpectedSha256 when available.
-- Support anonymous public repository downloads, with --require-auth available to enforce gh authentication.
-- Stop if the source does not contain a valid root SKILL.md.
-- Report usage as unknown unless the host provides a trustworthy invocation event.
+- Never replace an existing install silently without `-Force` and a backup.
+- Never execute downloaded code without explicit `-RunSmokeTest`.
+- Reject symbolic links, junctions, or other reparse points inside downloaded sources.
+- Support anonymous public repository downloads, with `--require-auth` available to enforce authentication.
+- Track provenance accurately (`installer`, `manual`, `unknown`).
 
 ## Output contract
 
-Report: mode, source path, link path, install mode, resolved commit, source/link verification, smoke-test status, memory status, catalog status, and timestamp.
+Report: category distribution, total and broken skill counts, source paths, link paths, provenance, and invocation hints.

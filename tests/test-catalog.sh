@@ -97,6 +97,39 @@ show_output="$(bash "$CATALOG" --show slides-skill)"
 [[ "$show_output" == *"presentations"* ]]
 [[ "$show_output" == *"unknown"* ]]
 
+# V2.0 Schema & Capabilities & Manual Scan Verification
+grep -q '"schema_version": 2' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
+grep -q '"capabilities":' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
+grep -q '"discovered_at":' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
+grep -q '"category": "media"' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
+grep -q '"visible": true' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
+
+# Manual skill discovery test
+mkdir -p "$CLAUDE_SKILLS_DIR/manual-skill"
+cat > "$CLAUDE_SKILLS_DIR/manual-skill/SKILL.md" <<'EOF'
+---
+name: manual-skill
+description: Use when testing manual skill placement.
+---
+# manual-skill
+EOF
+bash "$CATALOG" --refresh >/dev/null
+grep -q '"name": "manual-skill"' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
+grep -q '"provenance": "unknown"' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
+
+# Capabilities command test
+cap_output="$(bash "$CATALOG" --capabilities)"
+[[ "$cap_output" =~ "Your Agent currently has" ]]
+[[ "$cap_output" =~ "broken" ]]
+[[ "$cap_output" =~ "Broken (" ]]
+[[ "$cap_output" =~ "broken-skill" ]]
+
+# Missing skill retention test
+rm -rf "$CLAUDE_SKILLS_LINK_DIR/slides-skill"
+bash "$CATALOG" --refresh >/dev/null
+grep -q '"name": "slides-skill"' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
+grep -q '"health": "missing"' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
+
 set +e
 doctor_output="$(bash "$CATALOG" --doctor)"
 doctor_status=$?

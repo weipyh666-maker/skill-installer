@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.0.0] — 2026-08-23
+
+### Changed
+- Renamed project from `skill-installer` to `skill-manager` with full repository and remote synchronization.
+- Upgraded catalog schema to `schema_version: 2` with automatic legacy v1 migration without data loss.
+- Rewrote `SKILL.md` frontmatter description to support 11 distinct agent invocation and diagnosis triggers.
+- Removed deprecated `HANDOFF.md`.
+
+### Added
+- Added `capabilities` command (`--capabilities` / `-Command capabilities`) grouping skills by category (`Documents`, `Development`, `Browser`, `Research`, `Data`, `Media`, `Other`) with broken skill counting.
+- Added deep directory scanning (`scan_entries` / `Get-SkillDirectories`) that discovers manually placed skills in `~/.claude/skills` and `~/Claude-Code` with `discovered_at` timestamps.
+- Added health status tracking (`ok`, `broken`, `missing`) preserving uninstalled skills as `missing` across refresh cycles.
+- Added explicit Claude Code visibility tracking (`agents.claude.visible`, `agents.claude.link_path`).
+- Added placeholder directories `core/` and `adapters/` for V3 multi-agent architecture.
+- Added comprehensive regression tests in `tests/test-catalog.ps1` and `tests/test-catalog.sh` for schema v2, capabilities output, manual scan discovery, and missing entry retention.
+
 ## [0.5.0] — 2026-08-23
 
 ### Added

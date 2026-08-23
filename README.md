@@ -1,20 +1,24 @@
-# skill-installer
+# skill-manager
 
-Install, validate, and link a Claude Code skill from a GitHub repository or a local directory.
-
-The installer is designed for public distribution: downloaded content is treated as untrusted, replacement requires explicit --force, smoke tests are opt-in, and memory updates are opt-in.
+A Skill Manager for Claude Code that knows what skills are installed, searches by capability, diagnoses discovery issues, and installs/updates safely.
 
 ## What it solves
 
-Installing a skill usually involves locating the source, downloading it, placing it in a stable directory, linking it into Claude Code, checking the SKILL.md contract, and recording the result. This project turns that sequence into one repeatable command for Windows, macOS, Linux, and WSL.
+1. **我装了什么？ (What skills are installed?)**
+   Lists and groups all active skills across `~/.claude/skills` and `~/Claude-Code` by category, with health status and Claude visibility.
 
-## Supported inputs
+2. **我记得功能但忘了名字？ (Search by capability, not just exact name)**
+   Indexes multi-lingual keywords, aliases, and explicit or derived capabilities so you can find skills by intent (e.g. `图片识别`, `document converter`, `data analytics`).
 
-- A GitHub repository in owner/name form.
-- A local directory whose root contains a valid SKILL.md.
-- An existing extracted source when only the link needs to be recreated.
+3. **明明装了，为什么 Agent 没发现？ (Diagnose discovery issues & broken skills)**
+   Scans the local filesystem for unlinked skills, invalid `SKILL.md` frontmatter, missing files, or duplicated names via `doctor` and `capabilities` commands.
 
-This release installs one skill at a time. Discovery and ranking of skills belongs in a marketplace or skill-finder tool; this installer expects an exact source.
+## Features
+
+- **Schema v2 Catalog**: Categorizes skills (`Documents`, `Development`, `Browser`, `Research`, `Data`, `Media`, `Other`) with granular health, capability tags, and visibility checks.
+- **Deep Scanning & Ingestion**: Automatically scans and ingests manually placed skills into the index while maintaining installer provenance (`commit`, `sha256`, `installed_at`).
+- **Safe Installation & Refresh**: Installs skills from public or private GitHub repos and local paths, with staging, atomic backups, sensitive file checks, and reparse-point rejection.
+- **Cross-Platform**: Full parity across PowerShell (Windows) and Bash (macOS/Linux/WSL).
 
 ## Requirements
 
@@ -29,52 +33,77 @@ This release installs one skill at a time. Discovery and ranking of skills belon
 - Bash.
 - `tar`.
 - `curl` (or `gh`) for GitHub sources. `gh auth login` is only required for private repositories.
-- Python 3 for safe path normalization and Bash catalog commands (`--list`, `--find`, `--show`, `--doctor`, `--refresh`).
+- Python 3 for safe path normalization and Bash catalog commands (`--capabilities`, `--list`, `--find`, `--show`, `--doctor`, `--refresh`).
 - `sha256sum` or `shasum` for digest verification.
 
 Public GitHub installs, local installs, and dry-runs do not require GitHub authentication.
 
 ## Quick start
 
-### PowerShell
+### Inspecting capabilities and inventory
 
 ~~~powershell
-# Validate without changing files
-pwsh -File lib\install.ps1 -LocalPath .\my-skill -DryRun
+# Show summary of capabilities grouped by category with health count
+pwsh -File lib\catalog.ps1 -Command capabilities
 
+# Full tabular listing
+pwsh -File lib\catalog.ps1 -Command list
+
+# Search by capability / intent (bilingual English + Chinese)
+pwsh -File lib\catalog.ps1 -Command find -Query '图片识别'
+
+# Inspect detailed metadata, provenance, and Claude visibility
+pwsh -File lib\catalog.ps1 -Command show -Name skill-name
+
+# Run health check and diagnosis
+pwsh -File lib\catalog.ps1 -Command doctor
+
+# Re-scan filesystem and refresh catalog index
+pwsh -File lib\catalog.ps1 -Command refresh
+~~~
+
+~~~bash
+# Show summary of capabilities grouped by category with health count
+bash lib/catalog.sh --capabilities
+
+# Full tabular listing
+bash lib/catalog.sh --list
+
+# Search by capability / intent (bilingual English + Chinese)
+bash lib/catalog.sh --find 'image recognition'
+
+# Inspect detailed metadata, provenance, and Claude visibility
+bash lib/catalog.sh --show skill-name
+
+# Run health check and diagnosis
+bash lib/catalog.sh --doctor
+
+# Re-scan filesystem and refresh catalog index
+bash lib/catalog.sh --refresh
+~~~
+
+### Installing and updating skills
+
+~~~powershell
 # Install a public repository (no gh auth login required)
 pwsh -File lib\install.ps1 -Repo owner/skill-name -Ref v1.0.0
 
 # Install a reviewed, pinned ref with expected digest
 pwsh -File lib\install.ps1 -Repo owner/skill-name -Ref 0123456789abcdef0123456789abcdef01234567 -ExpectedSha256 64-character-sha256
 
-# Require gh authentication (reject anonymous fallback)
-pwsh -File lib\install.ps1 -Repo owner/private-skill -RequireAuth
-
 # Install from a local directory
 pwsh -File lib\install.ps1 -LocalPath .\my-skill
 
 # Replace an existing install after a backup
 pwsh -File lib\install.ps1 -LocalPath .\my-skill -Name my-skill -Force
-
-# Explicitly run a reviewed CLI smoke test
-pwsh -File lib\install.ps1 -Repo owner/cli-skill -Ref v1.2.3 -RunSmokeTest
 ~~~
 
-### Bash
-
 ~~~bash
-# Validate without changing files
-bash lib/install.sh --local ./my-skill --dry-run
-
 # Install a public repository (no gh auth login required)
 bash lib/install.sh owner/skill-name --ref v1.0.0
 
 # Install a reviewed, pinned ref with expected digest
 bash lib/install.sh owner/skill-name --ref 0123456789abcdef0123456789abcdef01234567 --expected-sha256 64-character-sha256
-
-# Require gh authentication (reject anonymous fallback)
-bash lib/install.sh owner/private-skill --require-auth
 
 # Install from a local directory
 bash lib/install.sh --local ./my-skill
@@ -85,63 +114,30 @@ bash lib/install.sh --local ./my-skill --name my-skill --force
 
 ## Safety model
 
-1. --dry-run performs validation and prints the plan without network, filesystem, link, smoke-test, or memory changes.
-2. --force is required before replacing an existing source or link. Existing source content is moved into CLAUDE_SKILLS_DIR/.backups/.
-3. Skill names, repositories, refs, hashes, and install paths are validated.
-4. Local and downloaded sources containing .env, key files, certificate files, .git, secrets/, or any symbolic link / reparse point are rejected.
+1. `--dry-run` performs validation and prints the plan without network, filesystem, link, smoke-test, or memory changes.
+2. `--force` is required before replacing an existing source or link. Existing source content is moved into `CLAUDE_SKILLS_DIR/.backups/`.
+3. Skill names, repositories, refs, hashes, and install paths are validated against path traversal and forbidden characters.
+4. Local and downloaded sources containing `.env`, key files, certificate files, `.git`, `secrets/`, or any symbolic link / reparse point are rejected.
 5. GitHub downloads report the resolved commit and tarball SHA256.
-6. Smoke tests execute downloaded code and therefore require the explicit -RunSmokeTest or --run-smoke-test flag.
-7. Memory updates are disabled by default and require -UpdateMemory or --update-memory.
+6. Smoke tests execute downloaded code and therefore require the explicit `-RunSmokeTest` or `--run-smoke-test` flag.
+7. Memory updates are disabled by default and require `-UpdateMemory` or `--update-memory`.
 
-Review a third-party SKILL.md before installing it. A skill is instructions for an agent, not a sandbox.
+Review a third-party `SKILL.md` before installing it. A skill is instructions for an agent, not a sandbox.
 
-## Skill catalog
+## Catalog operations
 
-The installer maintains an index at `CLAUDE_SKILLS_DIR/installed-skills-index.json` after a successful install. The index is a cache; the filesystem remains the source of truth.
+The manager maintains a cache index at `CLAUDE_SKILLS_DIR/installed-skills-index.json`. The filesystem remains the ultimate source of truth.
 
-~~~powershell
-pwsh -File lib\catalog.ps1 -Command list
-pwsh -File lib\catalog.ps1 -Command find -Query '图片识别'
-pwsh -File lib\catalog.ps1 -Command show -Name skill-name
-pwsh -File lib\catalog.ps1 -Command doctor
-pwsh -File lib\catalog.ps1 -Command refresh
-~~~
+| Operation | PowerShell | Bash | Purpose |
+|---|---|---|---|
+| Capabilities | `-Command capabilities` | `--capabilities` | Summary grouped by category with broken count |
+| List | `-Command list` | `--list` | Tabular skill listing |
+| Find | `-Command find -Query value` | `--find value` | Bilingual keyword and alias search |
+| Show | `-Command show -Name value` | `--show value` | Deep inspection of skill provenance and visibility |
+| Doctor | `-Command doctor` | `--doctor` | Diagnosis of broken frontmatter and duplicates |
+| Refresh | `-Command refresh` | `--refresh` | Rescan filesystem and update catalog index |
 
-~~~bash
-bash lib/catalog.sh --list
-bash lib/catalog.sh --find 'image recognition'
-bash lib/catalog.sh --show skill-name
-bash lib/catalog.sh --doctor
-bash lib/catalog.sh --refresh
-~~~
-
-Catalog results include the name, install directory name, description, source/link display paths, status, and an invocation hint. Paths are stored with environment placeholders rather than user-specific absolute paths. Existing skills not installed through this installer use source `unknown` and null provenance fields; the catalog does not guess. Refreshing also converts legacy `source: local` entries from older index versions to `unknown` unless a trusted installer registration replaces them.
-
-The two shells expose the same operations with their native argument style:
-
-| Operation | PowerShell | Bash |
-|---|---|---|
-| List | `-Command list` | `--list` |
-| Find | `-Command find -Query value` | `--find value` |
-| Show | `-Command show -Name value` | `--show value` |
-| Doctor | `-Command doctor` | `--doctor` |
-| Refresh | `-Command refresh` | `--refresh` |
-
-Usage is reported as `unknown` unless the host provides a trustworthy invocation event; the catalog never invents usage counts.
-
-## Pipeline
-
-| Step | Behavior |
-|---|---|
-| 1. Pre-flight | Validate source mode, name, ref, hash, and required tools |
-| 2. Prepare source | Stage a local directory or fetch a GitHub tarball |
-| 3. Create link | Create a junction/symlink, or report a copy fallback |
-| 4. Verify | Validate frontmatter and compare source/link SKILL.md hashes |
-| 5. Smoke test | Optional and explicit; never the default |
-| 6. Memory | Optional and idempotent; never the default |
-| 7. Catalog/result | Refresh the index and print paths, mode, commit, digest, and verification status |
-
-## Options
+## Installer options
 
 | PowerShell | Bash | Purpose |
 |---|---|---|
@@ -174,7 +170,7 @@ Usage is reported as `unknown` unless the host provides a trustworthy invocation
 ## Repository layout
 
 ~~~text
-skill-installer/
+skill-manager/
 ├── .github/workflows/ci.yml
 ├── SKILL.md
 ├── README.md
@@ -182,6 +178,10 @@ skill-installer/
 ├── CHANGELOG.md
 ├── LICENSE
 ├── .gitattributes
+├── core/
+│   └── .gitkeep
+├── adapters/
+│   └── .gitkeep
 ├── lib/
 │   ├── install.ps1
 │   ├── install.sh
@@ -197,8 +197,6 @@ skill-installer/
     ├── test-catalog.sh
     └── fixtures/minimal-skill/SKILL.md
 ~~~
-
-The current release is a standalone installer skill. A future collection repository can place additional skills under skills/<skill-name>/ and add a selector without changing this install contract.
 
 ## Development and verification
 
@@ -218,11 +216,13 @@ The test suite uses temporary directories and never writes to a user's Claude Co
 
 ## Release notes
 
-Version 0.3.1 adds the installed-skill catalog, search commands, safe multi-line YAML parsing, and English/Chinese compound search filtering. It refreshes the index after successful installation while keeping usage status explicitly unknown when the host exposes no invocation events.
+Version 2.0.0 evolves `skill-installer` into `skill-manager` with Catalog Schema v2, capability grouping (`--capabilities`), deep filesystem scanning for manual skills, missing health retention, and enhanced diagnostics.
+
+Version 0.5.0 adds an anonymous public repository installation path (via curl on Linux/macOS and Invoke-WebRequest on Windows) removing the mandatory `gh auth login` requirement for public skills while preserving resolved commit SHA provenance.
 
 Version 0.4.0 hardens the safety model against nested symbolic links and reparse points, aligns the Bash and PowerShell regression matrices, and adds GitHub Actions CI across Ubuntu, macOS, and Windows.
 
-Version 0.5.0 adds an anonymous public repository installation path (via curl on Linux/macOS and Invoke-WebRequest on Windows) removing the mandatory `gh auth login` requirement for public skills while preserving resolved commit SHA provenance, and provides `--require-auth` / `--allow-anonymous-fallback` controls.
+Version 0.3.1 adds the installed-skill catalog, search commands, safe multi-line YAML parsing, and English/Chinese compound search filtering.
 
 ## License
 
