@@ -1,0 +1,52 @@
+[
+  {
+    "id": "neg01",
+    "query": "帮我写 C 语言程序",
+    "intent": "code"
+  },
+  {
+    "id": "neg02",
+    "query": "翻译这句话成英文",
+    "intent": "translation"
+  },
+  {
+    "id": "neg03",
+    "query": "解释 strlen 函数",
+    "intent": "knowledge"
+  },
+  {
+    "id": "neg04",
+    "query": "帮我写一封邮件",
+    "intent": "writing"
+  },
+  {
+    "id": "neg05",
+    "query": "今天天气怎么样",
+    "intent": "chat"
+  },
+  {
+    "id": "neg06",
+    "query": "写一个 React 组件",
+    "intent": "code"
+  },
+  {
+    "id": "neg07",
+    "query": "解释量子计算",
+    "intent": "knowledge"
+  },
+  {
+    "id": "neg08",
+    "query": "我心情不好",
+    "intent": "chat"
+  },
+  {
+    "id": "neg09",
+    "query": "我想听个笑话",
+    "intent": "chat"
+  },
+  {
+    "id": "neg10",
+    "query": "正则表达式怎么写",
+    "intent": "code"
+  }
+]

@@ -1,5 +1,28 @@
 # Changelog
 
+## [3.1.1] — 2026-08-23
+
+### Added
+- **Doctor Trigger Quality 8-Rule Engine**:
+  - Expanded trigger diagnostic rules from 4 to 8:
+    1. Explicit trigger prefix (`Use when...`, `when`, `whenever`)
+    2. Action verb presence (general domain actions)
+    3. Action verb diversity ($\ge 3$ distinct prototype verbs from dictionary)
+    4. Concrete trigger examples (`e.g.`, `for example`, `such as`, `例如`, `比如`)
+    5. Appropriate length (30–200 characters)
+    6. Well-formed first sentence (no list/bullet marker prefix)
+    7. Explicit `capabilities` frontmatter tags
+    8. Explicit `category` frontmatter classification
+- **Trigger Quality Scoring (`trigger_quality_score`)**:
+  - Single skill mode: outputs itemized checks, score percentage (e.g. `1 ⚠ / 8 ✓ (score: 87.5%)`), and actionable recommendations.
+  - Global scan mode: computes library-wide average score across healthy skills and reports Top 3 skills with lowest scores.
+- **Auto-Trigger Heuristic Evaluation Suite**:
+  - `tests/fixtures/auto-trigger/queries-pos.json` (12 positive intent queries)
+  - `tests/fixtures/auto-trigger/queries-neg.json` (10 negative out-of-domain queries)
+  - `tests/test-auto-trigger.sh` & `tests/test-auto-trigger.ps1` evaluation harnesses (100% positive, 100% negative pass rates).
+- **Dedicated CI Jobs**:
+  - Added `auto-trigger` (Ubuntu Bash) and `auto-trigger-ps` (Windows PowerShell) jobs to `.github/workflows/ci.yml`.
+
 ## [3.1.0] — 2026-08-23
 
 ### Added

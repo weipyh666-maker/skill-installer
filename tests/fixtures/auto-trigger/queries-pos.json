@@ -1,0 +1,62 @@
+[
+  {
+    "id": "pos01",
+    "query": "我装了哪些 Skill",
+    "intent": "capabilities"
+  },
+  {
+    "id": "pos02",
+    "query": "我是不是装过做 PPT 的？",
+    "intent": "find"
+  },
+  {
+    "id": "pos03",
+    "query": "帮我找一下能处理 PDF 的 Skill",
+    "intent": "find"
+  },
+  {
+    "id": "pos04",
+    "query": "我忘记那个网页设计 Skill 叫什么",
+    "intent": "find"
+  },
+  {
+    "id": "pos05",
+    "query": "为什么这个 Skill 没自动调用？",
+    "intent": "doctor"
+  },
+  {
+    "id": "pos06",
+    "query": "list my skills",
+    "intent": "capabilities"
+  },
+  {
+    "id": "pos07",
+    "query": "what skills do I have?",
+    "intent": "capabilities"
+  },
+  {
+    "id": "pos08",
+    "query": "is there a skill that handles images?",
+    "intent": "find"
+  },
+  {
+    "id": "pos09",
+    "query": "find me a skill that summarizes papers",
+    "intent": "find"
+  },
+  {
+    "id": "pos10",
+    "query": "哪个 skill 能做 PPT",
+    "intent": "find"
+  },
+  {
+    "id": "pos11",
+    "query": "我有哪些能力可以用",
+    "intent": "capabilities"
+  },
+  {
+    "id": "pos12",
+    "query": "我装的所有 skill 都列出来",
+    "intent": "capabilities"
+  }
+]

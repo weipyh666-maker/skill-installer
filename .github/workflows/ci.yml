@@ -35,6 +35,8 @@ jobs:
         run: bash tests/test-catalog.sh
       - name: find benchmark tests
         run: bash tests/test-find-benchmark.sh
+      - name: auto trigger tests
+        run: bash tests/test-auto-trigger.sh
 
   powershell-tests:
     name: PowerShell (Windows)
@@ -50,3 +52,23 @@ jobs:
         run: pwsh -NoProfile -File tests/test-catalog.ps1
       - name: find benchmark tests
         run: pwsh -NoProfile -File tests/test-find-benchmark.ps1
+      - name: auto trigger tests
+        run: pwsh -NoProfile -File tests/test-auto-trigger.ps1
+
+  auto-trigger:
+    name: Auto-trigger test (Bash)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - run: bash tests/test-auto-trigger.sh
+
+  auto-trigger-ps:
+    name: Auto-trigger test (PowerShell)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: pwsh
+        run: pwsh -NoProfile -File tests/test-auto-trigger.ps1

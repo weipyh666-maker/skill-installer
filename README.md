@@ -302,3 +302,6 @@ Version 0.3.1 adds the installed-skill catalog, search commands, safe multi-line
 ## License
 
 MIT. See LICENSE.
+
+
+> **Note**: Trigger quality rules: 8 (since V3.1.1) — covers prefix, action verbs, verb diversity, concrete examples, length (30-200), prose structure, capabilities, and category.

@@ -910,6 +910,137 @@ def print_capabilities(index_data, target_skills=None):
             print(f"  {s['name']:<20} {desc}")
         print()
 
+PROTOTYPE_VERBS = {
+    "use": ["use", "using", "used", "uses"],
+    "create": ["create", "creating", "created", "creates", "creation"],
+    "build": ["build", "building", "built", "builds"],
+    "generate": ["generate", "generating", "generated", "generates", "generation"],
+    "analyze": ["analyze", "analyzing", "analyzed", "analyzes", "analysis", "analytics"],
+    "find": ["find", "finding", "found", "finds"],
+    "check": ["check", "checking", "checked", "checks"],
+    "inspect": ["inspect", "inspecting", "inspected", "inspects", "inspection"],
+    "run": ["run", "running", "ran", "runs"],
+    "convert": ["convert", "converting", "converted", "converts", "conversion"],
+    "translate": ["translate", "translating", "translated", "translates", "translation"],
+    "design": ["design", "designing", "designed", "designs"],
+    "write": ["write", "writing", "written", "writes", "wrote"],
+    "read": ["read", "reading", "reads"],
+    "manage": ["manage", "managing", "managed", "manages", "management"],
+    "deploy": ["deploy", "deploying", "deployed", "deploys", "deployment"],
+    "test": ["test", "testing", "tested", "tests"],
+    "validate": ["validate", "validating", "validated", "validates", "validation"],
+    "summarize": ["summarize", "summarizing", "summarized", "summarizes", "summary"],
+    "search": ["search", "searching", "searched", "searches"]
+}
+
+def evaluate_trigger_quality(frontmatter, desc, caps, cat):
+    passed_rules = 0
+    warnings = 0
+    details = []
+    recommendations = []
+    desc_clean = desc.strip() if desc else ""
+    desc_lower = desc_clean.lower()
+
+    # Rule 1: Trigger prefix
+    if desc_clean and (desc_lower.startswith("use when") or desc_lower.startswith("this skill should be used when") or desc_lower.startswith("trigger when")):
+        passed_rules += 1
+        details.append(('✓', 'Description starts with explicit trigger phrase ("Use when...")'))
+    elif desc_clean and ("when" in desc_lower or "whenever" in desc_lower):
+        passed_rules += 1
+        details.append(('✓', 'Description contains trigger phrase ("when")'))
+    else:
+        warnings += 1
+        details.append(('⚠', 'Description lacks explicit trigger phrase ("Use when...")'))
+        recommendations.append('Start description with "Use when the user wants to..."')
+
+    # Rule 2: Contains action verbs
+    action_words = ('use', 'create', 'analyze', 'build', 'check', 'inspect', 'run', 'extract', 'convert', 'manage', 'format', 'test', 'search', 'query', 'deploy', 'fix', 'scaffold', 'design', 'write', 'edit', 'review', 'translate', 'summarize', 'crawl', 'scrape', 'monitor', '转换', '提取', '创建', '分析', '构建', '检查', '运行', '调试', '搜索', '编写', '审查', '设计', '做')
+    if any(act in desc_lower for act in action_words):
+        passed_rules += 1
+        details.append(('✓', 'Description contains action verbs'))
+    else:
+        warnings += 1
+        details.append(('⚠', 'Description lacks clear action verbs'))
+        recommendations.append('Add action verbs (e.g. create, analyze, convert, manage) to description')
+
+    # Rule 3: Verb diversity (>=3 distinct prototype verbs)
+    found_verbs = []
+    for pverb, forms in PROTOTYPE_VERBS.items():
+        if any(re.search(r'\b' + re.escape(form) + r'\b', desc_lower) for form in forms):
+            found_verbs.append(pverb)
+    if len(found_verbs) >= 3:
+        passed_rules += 1
+        details.append(('✓', f'Rich verb diversity ({len(found_verbs)} action verbs: {", ".join(found_verbs[:5])})'))
+    elif len(found_verbs) in (1, 2):
+        warnings += 1
+        details.append(('⚠', f'Consider more action verbs (found {len(found_verbs)}: {", ".join(found_verbs)})'))
+        recommendations.append('Include at least 3 distinct action verbs to broaden trigger recognition')
+    else:
+        warnings += 1
+        details.append(('⚠', 'No action verbs detected'))
+        recommendations.append('Include at least 3 distinct action verbs (e.g. use, create, manage)')
+
+    # Rule 4: Concrete examples
+    example_markers = ("e.g.", "例如", "比如", "such as", "examples include", "for example")
+    if any(m in desc_lower for m in example_markers):
+        passed_rules += 1
+        details.append(('✓', 'Concrete examples present'))
+    else:
+        warnings += 1
+        details.append(('⚠', 'No concrete examples; consider adding (e.g., "for example, ...")'))
+        recommendations.append('Consider adding concrete examples (e.g., "for example, ...", "such as ...")')
+
+    # Rule 5: Appropriate length (30-200 chars)
+    char_len = len(desc_clean)
+    if 30 <= char_len <= 200:
+        passed_rules += 1
+        details.append(('✓', f'Appropriate length ({char_len} chars)'))
+    elif char_len < 30:
+        warnings += 1
+        details.append(('⚠', f'Description too short ({char_len} chars, recommend 30-200)'))
+        recommendations.append('Expand description to between 30 and 200 characters')
+    else:
+        warnings += 1
+        details.append(('⚠', f'Description too long ({char_len} chars, recommend 30-200; risk of dilution)'))
+        recommendations.append('Trim description to between 30 and 200 characters to avoid trigger dilution')
+
+    # Rule 6: Well-formed first sentence (no list/bullet prefix)
+    is_list_start = bool(re.match(r'^\s*(?:[-*•]|\d+[\.\)])\s+', desc_clean))
+    if not is_list_start and char_len > 0:
+        passed_rules += 1
+        details.append(('✓', 'Well-formed first sentence'))
+    else:
+        warnings += 1
+        details.append(('⚠', 'First sentence looks like a list; rewrite as prose'))
+        recommendations.append('Rewrite initial bullet list as a continuous prose sentence')
+
+    # Rule 7: Explicit capabilities
+    if caps:
+        passed_rules += 1
+        details.append(('✓', f'Capabilities declared: [{caps}]'))
+    else:
+        warnings += 1
+        details.append(('⚠', 'No explicit capabilities tags in frontmatter — auto-derived only'))
+        recommendations.append('Add "capabilities: [...]" to SKILL.md frontmatter')
+
+    # Rule 8: Explicit category
+    if cat:
+        passed_rules += 1
+        details.append(('✓', f'Category declared: {cat}'))
+    else:
+        warnings += 1
+        details.append(('⚠', 'No explicit category in frontmatter — auto-bucketed'))
+        recommendations.append('Add "category: <cat>" to SKILL.md frontmatter')
+
+    score_pct = round((passed_rules / 8.0) * 100.0, 1)
+    return {
+        "passed": passed_rules,
+        "warnings": warnings,
+        "score": score_pct,
+        "details": details,
+        "recommendations": recommendations
+    }
+
 def doctor_global(index_data):
     skills = index_data.get("skills", [])
     scanned_count = len(skills)
@@ -930,6 +1061,36 @@ def doctor_global(index_data):
         print(f"  missing: {len(missing_list)} ({missing_names})")
     else:
         print("  missing: 0")
+
+    healthy_scores = []
+    healthy_skills = [s for s in skills if s.get("status") == "ok" and s.get("health") == "ok"]
+    for s in healthy_skills:
+        dir_name = s.get("install_name", s["name"])
+        s_file = skills_dir / dir_name / "SKILL.md"
+        l_file = link_dir / dir_name / "SKILL.md"
+        raw = ""
+        if s_file.is_file():
+            try: raw = s_file.read_text(encoding="utf-8")
+            except Exception: pass
+        elif l_file.is_file():
+            try: raw = l_file.read_text(encoding="utf-8")
+            except Exception: pass
+        m = re.search(r"(?ms)^---\s*\r?\n(.*?)\r?\n---(?:\s*\r?\n|$)", raw)
+        fm = m.group(1) if m else ""
+        d_desc = extract_frontmatter_field(fm, "description")
+        d_caps = extract_frontmatter_field(fm, "capabilities")
+        d_cat = extract_frontmatter_field(fm, "category")
+        ev = evaluate_trigger_quality(fm, d_desc, d_caps, d_cat)
+        healthy_scores.append({"name": s["name"], "score": ev["score"], "warnings": ev["warnings"]})
+
+    avg_score = round(sum(item["score"] for item in healthy_scores) / len(healthy_scores), 1) if healthy_scores else 0.0
+    print(f"trigger quality: avg {avg_score:.1f}% across healthy skills")
+
+    lowest_top3 = sorted(healthy_scores, key=lambda x: (x["score"], x["name"]))[:3]
+    if lowest_top3:
+        print("Top 3 skills with lowest score:")
+        for low in lowest_top3:
+            print(f"  - {low['name']} ({low['score']:.1f}%)")
 
     if broken_list or missing_list:
         raise SystemExit(1)
@@ -1034,53 +1195,20 @@ def doctor_single(skill_name, index_data):
     print()
 
     print("Trigger quality")
-    trigger_warnings = 0
-    desc_words = declared_desc.split() if declared_desc else []
-    desc_len = len(desc_words)
-    if desc_len >= 20:
-        print(f"  ✓ Description has {desc_len} words")
-    else:
-        print(f"  ⚠ Description too short ({desc_len} words, recommend ≥ 20)")
-        suggestions.append("Expand description to at least 20 words describing when to use this skill")
-        trigger_warnings += 1
-
-    action_words = ('use', 'create', 'analyze', 'build', 'check', 'inspect', 'run', 'extract', 'convert', 'manage', 'format', 'test', 'search', 'query', 'deploy', 'fix', 'scaffold', 'design', 'write', 'edit', 'review', 'translate', 'summarize', 'crawl', 'scrape', 'monitor', '转换', '提取', '创建', '分析', '构建', '检查', '运行', '调试', '搜索', '编写', '审查', '设计', '做')
-    desc_lower = declared_desc.lower() if declared_desc else ""
-    if any(act in desc_lower for act in action_words):
-        print("  ✓ Description contains action verbs")
-    else:
-        print("  ⚠ Description lacks clear action verbs")
-        suggestions.append("Add action verbs (e.g. create, analyze, convert, manage) to description")
-        trigger_warnings += 1
-
-    if declared_desc and declared_desc.strip().lower().startswith("use when"):
-        print('  ✓ Description starts with explicit trigger phrase ("Use when...")')
-    elif declared_desc and ("when" in declared_desc.lower() or "whenever" in declared_desc.lower()):
-        print('  ✓ Description contains trigger phrase ("when")')
-    else:
-        print('  ⚠ Description lacks explicit trigger phrase ("Use when...")')
-        suggestions.append('Start description with "Use when the user wants to..."')
-        trigger_warnings += 1
-
-    if declared_caps:
-        print(f"  ✓ Capabilities declared: {declared_caps}")
-    else:
-        inferred_caps = ", ".join(entry.get("capabilities", [])) if entry else "none"
-        print(f"  ⚠ No explicit capabilities tags in frontmatter — auto-derived only ({inferred_caps})")
-        suggestions.append(f'Add "capabilities: [{inferred_caps}]" to SKILL.md frontmatter')
-        trigger_warnings += 1
-
-    inferred_cat = entry.get("category", "other") if entry else "other"
-    if declared_cat:
-        print(f"  ✓ Category declared: {declared_cat}")
-    else:
-        print(f"  ⚠ No explicit category in frontmatter — auto-bucketed to {inferred_cat}")
-        suggestions.append(f'Add "category: {inferred_cat}" to SKILL.md frontmatter')
-        trigger_warnings += 1
-
-    if trigger_warnings == 0:
+    ev = evaluate_trigger_quality(frontmatter, declared_desc, declared_caps, declared_cat)
+    for icon, msg in ev["details"]:
+        print(f"  {icon} {msg}")
+    print()
+    print(f"  trigger quality: {ev['warnings']} ⚠ / 8 ✓ (score: {ev['score']:.1f}%)")
+    if ev["warnings"] == 0 or ev["score"] >= 70.0:
         print("  ✓ Trigger description looks Claude-discoverable")
     print()
+
+    if ev["recommendations"]:
+        print("Recommendations:")
+        for r in ev["recommendations"]:
+            print(f"  - {r}")
+        print()
 
     if suggestions:
         print("Suggestions:")
@@ -1088,22 +1216,8 @@ def doctor_single(skill_name, index_data):
             print(f"  - {s}")
 
 def get_trigger_warning_count(frontmatter, desc, caps, cat):
-    count = 0
-    if not desc or len(desc.strip()) < 20:
-        count += 1
-    elif not desc.strip().lower().startswith("use when"):
-        count += 1
-
-    action_words = ('use', 'create', 'analyze', 'build', 'check', 'inspect', 'run', 'extract', 'convert', 'manage', 'format', 'test', 'search', 'query', 'deploy', 'fix', 'scaffold', 'design', 'write', 'edit', 'review', 'translate', 'summarize', 'crawl', 'scrape', 'monitor', '转换', '提取', '创建', '分析', '构建', '检查', '运行', '调试', '搜索', '编写', '审查', '设计', '做')
-    desc_lower = desc.lower() if desc else ""
-    if not any(act in desc_lower for act in action_words):
-        count += 1
-
-    if not caps:
-        count += 1
-    if not cat:
-        count += 1
-    return count
+    ev = evaluate_trigger_quality(frontmatter, desc, caps, cat)
+    return ev["warnings"]
 
 def is_symlink_or_reparse(path_obj):
     if path_obj.is_symlink():

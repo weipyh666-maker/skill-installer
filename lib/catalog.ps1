@@ -20,6 +20,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\..\adapters\_base.ps1"
 . "$PSScriptRoot\..\core\search.ps1"
+. "$PSScriptRoot\..\core\doctor.ps1"
 
 $resolvedAgent = Resolve-AgentName $Agent
 if (-not (Test-ValidAgentName $resolvedAgent)) {
@@ -691,6 +692,42 @@ function Invoke-DoctorGlobal($IndexData) {
         Write-Host "  missing: 0"
     }
 
+    $healthyScores = [System.Collections.Generic.List[object]]::new()
+    $healthyList = @($skills | Where-Object { $_.status -eq 'ok' -and $_.health -eq 'ok' })
+    foreach ($s in $healthyList) {
+        $sDir = if ($s.install_name) { $s.install_name } else { $s.name }
+        $sFile = Join-Path $SkillsDir (Join-Path $sDir 'SKILL.md')
+        $lFile = Join-Path $LinkDir (Join-Path $sDir 'SKILL.md')
+        $raw = ''
+        if (Test-Path -LiteralPath $sFile -PathType Leaf) {
+            try { $raw = Get-Content -LiteralPath $sFile -Raw -Encoding UTF8 } catch {}
+        } elseif (Test-Path -LiteralPath $lFile -PathType Leaf) {
+            try { $raw = Get-Content -LiteralPath $lFile -Raw -Encoding UTF8 } catch {}
+        }
+        $fm = ''
+        $fmM = [regex]::Match($raw, '(?ms)^---\s*\r?\n(.*?)\r?\n---(?:\s*\r?\n|$)')
+        if ($fmM.Success) { $fm = $fmM.Groups[1].Value }
+        $dDesc = Get-FrontmatterField $fm 'description'
+        $dCaps = Get-FrontmatterField $fm 'capabilities'
+        $dCat = Get-FrontmatterField $fm 'category'
+        $eval = Test-TriggerQualityRules $fm $dDesc $dCaps $dCat
+        $healthyScores.Add([pscustomobject]@{ Name = $s.name; Score = $eval.Score; Warnings = $eval.Warnings })
+    }
+
+    $avgScore = if ($healthyScores.Count -gt 0) {
+        [math]::Round(($healthyScores | Measure-Object -Property Score -Average).Average, 1)
+    } else { 0.0 }
+
+    Write-Host ("trigger quality: avg {0:F1}% across healthy skills" -f $avgScore)
+
+    $lowestTop3 = @($healthyScores | Sort-Object { $_.Score } | Select-Object -First 3)
+    if ($lowestTop3.Count -gt 0) {
+        Write-Host "Top 3 skills with lowest score:"
+        foreach ($low in $lowestTop3) {
+            Write-Host ("  - {0} ({1:F1}%)" -f $low.Name, $low.Score)
+        }
+    }
+
     if ($brokenList.Count -gt 0 -or $missingList.Count -gt 0) {
         exit 1
     }
@@ -809,60 +846,24 @@ function Invoke-DoctorSingle([string]$SkillName, $IndexData) {
     Write-Host ''
 
     Write-Host "Trigger quality"
-    $triggerWarnings = 0
-    $words = if ($declaredDesc) { $declaredDesc -split '\s+' | Where-Object { $_ } } else { @() }
-    $descLen = $words.Count
-    if ($descLen -ge 20) {
-        Write-Host "  ✓ Description has $descLen words"
-    } else {
-        Write-Host "  ⚠ Description too short ($descLen words, recommend ≥ 20)"
-        $suggestions.Add("Expand description to at least 20 words describing when to use this skill")
-        $triggerWarnings++
+    $eval = Test-TriggerQualityRules $frontmatter $declaredDesc $declaredCaps $declaredCat
+    foreach ($d in $eval.Details) {
+        Write-Host "  $($d.Status) $($d.Text)"
     }
-
-    $actionWords = @('use', 'create', 'analyze', 'build', 'check', 'inspect', 'run', 'extract', 'convert', 'manage', 'format', 'test', 'search', 'query', 'deploy', 'fix', 'scaffold', 'design', 'write', 'edit', 'review', 'translate', 'summarize', 'crawl', 'scrape', 'monitor', '转换', '提取', '创建', '分析', '构建', '检查', '运行', '调试', '搜索', '编写', '审查', '设计', '做')
-    $descLower = if ($declaredDesc) { $declaredDesc.ToLowerInvariant() } else { '' }
-    $hasAction = ($actionWords | Where-Object { $descLower.Contains($_) }).Count -gt 0
-    if ($hasAction) {
-        Write-Host "  ✓ Description contains action verbs"
-    } else {
-        Write-Host "  ⚠ Description lacks clear action verbs"
-        $suggestions.Add("Add action verbs (e.g. create, analyze, convert, manage) to description")
-        $triggerWarnings++
-    }
-
-    if ($declaredDesc -and $declaredDesc.Trim() -match '^(?i)use when\b') {
-        Write-Host '  ✓ Description starts with explicit trigger phrase ("Use when...")'
-    } elseif ($declaredDesc -and ($declaredDesc.ToLowerInvariant().Contains('when') -or $declaredDesc.ToLowerInvariant().Contains('whenever'))) {
-        Write-Host '  ✓ Description contains trigger phrase ("when")'
-    } else {
-        Write-Host '  ⚠ Description lacks explicit trigger phrase ("Use when...")'
-        $suggestions.Add('Start description with "Use when the user wants to..."')
-        $triggerWarnings++
-    }
-
-    if ($declaredCaps) {
-        Write-Host "  ✓ Capabilities declared: $declaredCaps"
-    } else {
-        $inferredCaps = if ($entry -and $entry.capabilities) { ($entry.capabilities -join ', ') } else { 'none' }
-        Write-Host "  ⚠ No explicit capabilities tags in frontmatter — auto-derived only ($inferredCaps)"
-        $suggestions.Add("Add `"capabilities: [$inferredCaps]`" to SKILL.md frontmatter")
-        $triggerWarnings++
-    }
-
-    $inferredCat = if ($entry -and $entry.category) { $entry.category } else { 'other' }
-    if ($declaredCat) {
-        Write-Host "  ✓ Category declared: $declaredCat"
-    } else {
-        Write-Host "  ⚠ No explicit category in frontmatter — auto-bucketed to $inferredCat"
-        $suggestions.Add("Add `"category: $inferredCat`" to SKILL.md frontmatter")
-        $triggerWarnings++
-    }
-
-    if ($triggerWarnings -eq 0) {
+    Write-Host ''
+    Write-Host ("  trigger quality: {0} ⚠ / 8 ✓ (score: {1:F1}%)" -f $eval.Warnings, $eval.Score)
+    if ($eval.Warnings -eq 0 -or $eval.Score -ge 70.0) {
         Write-Host "  ✓ Trigger description looks Claude-discoverable"
     }
     Write-Host ''
+
+    if ($eval.Recommendations.Count -gt 0) {
+        Write-Host "Recommendations:"
+        foreach ($r in $eval.Recommendations) {
+            Write-Host "  - $r"
+        }
+        Write-Host ''
+    }
 
     if ($suggestions.Count -gt 0) {
         Write-Host "Suggestions:"
