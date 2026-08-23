@@ -73,12 +73,12 @@ Claude 1.0 范围外（下阶段）：
 ### Added
 - Modular multi-agent architecture with dedicated `adapters/` (`_base`, `claude`, `codex`, `antigravity`) and `core/` subsystems (`scanner`, `search`, `doctor`).
 - Added `--agent` CLI option (`--agent` / `-Agent`) and `CLAUDE_SKILLS_AGENT` environment variable to target specific AI agent harnesses (`claude`, `codex`, `antigravity`) with `claude` as default.
-- Added stub adapters for OpenAI Codex CLI and Antigravity CLI with informative `not-yet-implemented` messaging pointing to `adapters/<agent>/stub-note.md`.
+- Added initial placeholder adapters for OpenAI Codex CLI and Antigravity CLI before their native implementations.
 - Upgraded catalog to `schema_version: 3` featuring top-level `default_agent: "claude"` and per-agent visibility objects (`visible`, `path`, `reason`).
 - Automatic backward-compatible migration from Schema v1/v2 to Schema v3.
 - Added agent-aware filtering across `capabilities`, `list`, `find`, and `doctor`, plus `--all-agents` / `-AllAgents` flag for full catalog inspection.
 - Added 13th trigger condition to `SKILL.md` frontmatter for multi-agent skill catalog management.
-- Added regression tests in `tests/test-install.*` and `tests/test-catalog.*` verifying `--agent claude` backward compatibility, Codex/Antigravity stub responses, `CLAUDE_SKILLS_AGENT` environment override, Schema v3 migration, and agent visibility filtering.
+- Added regression tests in `tests/test-install.*` and `tests/test-catalog.*` verifying `--agent claude` backward compatibility, agent environment overrides, Schema v3 migration, and agent visibility filtering.
 
 ## [2.2.0] — 2026-08-23
 
@@ -185,3 +185,13 @@ Claude 1.0 范围外（下阶段）：
 - GitHub tarball and local-directory installation.
 - Source/link verification, smoke-test heuristic, and optional memory update.
 - Wrapper templates for future CLI-bundle support.
+## [Codex 1.0] - 2026-08-23
+
+### Added
+- Native Codex adapter with user, project-ancestor, compatibility, system, admin, and conditional plugin discovery roots.
+- Codex multi-path catalog visibility, duplicate/metadata-conflict diagnostics, `skills.config` enablement handling, and protected system/admin write boundaries.
+- Codex install scopes (`user` and explicit `codex-home`), manager-owned backups, staging-only `--subdir` validation, and PowerShell/Bash regression coverage.
+- GitHub Actions coverage for Codex tests.
+
+### Security
+- Canonical/realpath containment protects system and POSIX admin roots, including ancestor symlink/reparse targets; downloaded package links remain rejected.

@@ -26,7 +26,9 @@ A multi-agent Skill Manager for discovering, searching, diagnosing, and safely m
 | :--- | :--- | :--- | :--- |
 | **Claude Code** | `adapters/claude/` | **Supported** (v1.0) | `~/.claude/skills/` (links to `~/Claude-Code/`) |
 | **Antigravity** | `adapters/antigravity/` | **Supported** (v1.0 / v3.2.0) | `~/.agents/skills/` |
-| **OpenAI Codex** | `adapters/codex/` | Planned / Adapter stub | `~/.codex/skills/` |
+| **OpenAI Codex** | `adapters/codex/` | **Supported** (Codex 1.0) | `~/.agents/skills/` |
+
+Codex uses multiple discovery roots. The documented user root is `~/.agents/skills/`; repository ancestors use `.agents/skills/`; `$CODEX_HOME/skills/` is the compatibility/official-installer root; `$CODEX_HOME/skills/.system/` is read-only protected. Duplicate names retain all paths and report `precedence=unknown`.
 
 ## Requirements
 
@@ -165,7 +167,7 @@ skill-manager/
 │   ├── _base.ps1 / _base.sh
 │   ├── claude/ (paths, detect)
 │   ├── antigravity/ (paths, detect, README.md)
-│   └── codex/ (paths, stub-note.md)
+│   └── codex/ (paths, detect, README.md)
 ├── core/
 │   ├── scanner.ps1 / scanner.sh
 │   ├── search.ps1 / search.sh

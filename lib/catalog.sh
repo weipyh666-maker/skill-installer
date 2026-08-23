@@ -490,7 +490,7 @@ def read_skill_entry(name, item_path, root_dir):
         "codex": {
             "visible": False,
             "path": None,
-            "reason": "stub adapter / not installed"
+            "reason": "not installed for codex"
         },
         "antigravity": {
             "visible": bool(antigravity_vis),
@@ -759,7 +759,7 @@ def build_index():
                     "usage": old_skill.get("usage", {"status": "unknown", "last_seen": None, "invocation_count": None}),
                     "agents": {
                         "claude": {"visible": False, "path": None, "reason": "missing"},
-                        "codex": {"visible": False, "path": None, "reason": "stub adapter / not installed"},
+                        "codex": {"visible": False, "path": None, "reason": "not installed for codex"},
                         "antigravity": {"visible": False, "path": None, "reason": "missing"}
                     },
                 }
@@ -845,13 +845,13 @@ def migrate_index(data):
             raw_agents["codex"] = {
                 "visible": False,
                 "path": None,
-                "reason": "stub adapter / not installed"
+                "reason": "not installed for codex"
             }
         if "antigravity" not in raw_agents or not isinstance(raw_agents["antigravity"], dict):
             raw_agents["antigravity"] = {
                 "visible": False,
                 "path": None,
-                "reason": "stub adapter / not installed"
+                "reason": "not installed for antigravity"
             }
         e["agents"] = raw_agents
         migrated_skills.append(e)

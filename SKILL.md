@@ -5,13 +5,15 @@ description: Use when the user wants to know what skills their agent has install
 
 # Skill Manager
 
+Supports Claude Code, Antigravity CLI, and OpenAI Codex with shared catalog, Find, Doctor, and safe installation workflows.
+
 ## Core principle
 
 Know what skills your agent has installed, organize and inspect them by capability and category, diagnose broken or unlinked skills, and install or update skills safely across supported agent platforms (Claude Code and Antigravity CLI). Treat downloaded code as untrusted until validated.
 
 ## Use this skill when
 
-- The user wants an overview of available capabilities or installed skills across agents (`claude`, `antigravity`).
+- The user wants an overview of available capabilities or installed skills across agents (`claude`, `antigravity`, `codex`).
 - The user asks what the agent can do or wants to search for a skill by capability.
 - The user cannot recall the exact name of a previously installed skill.
 - The user suspects an installed skill is broken, missing, or not being triggered by the agent.
@@ -38,7 +40,7 @@ Know what skills your agent has installed, organize and inspect them by capabili
 
 4. **Installing & Linking**:
    - Install public GitHub skills directly (anonymous fallback supported) or use `-RequireAuth` / `--require-auth` for private repos.
-   - Specify target agent with `-Agent antigravity` (installs to `~/.agents/skills`) or default `-Agent claude` (installs to `~/Claude-Code` with link to `~/.claude/skills`).
+   - Specify target agent with `-Agent antigravity` (installs to `~/.agents/skills`), `-Agent codex` (defaults to `~/.agents/skills`; use `-Scope codex-home` for `$CODEX_HOME/skills`), or default `-Agent claude` (installs to `~/Claude-Code` with link to `~/.claude/skills`).
    - Pin refs and check hashes where available (`-Ref`, `-ExpectedSha256`).
    - Back up existing versions automatically on `-Force`.
 

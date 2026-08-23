@@ -320,7 +320,7 @@ function ConvertTo-V3Index($raw) {
                 $agentsObj['codex'] = [ordered]@{
                     visible = $false
                     path = $null
-                    reason = 'stub adapter / not installed'
+                    reason = 'not installed for codex'
                 }
             }
 
@@ -328,7 +328,7 @@ function ConvertTo-V3Index($raw) {
                 $agentsObj['antigravity'] = [ordered]@{
                     visible = $false
                     path = $null
-                    reason = 'stub adapter / not installed'
+                    reason = 'not installed for antigravity'
                 }
             }
 
@@ -515,7 +515,7 @@ function Build-Index {
             codex = [ordered]@{
                 visible = $false
                 path = $null
-                reason = 'stub adapter / not installed'
+                reason = 'not installed for codex'
             }
             antigravity = [ordered]@{
                 visible = [bool]$antigravityVis
@@ -640,7 +640,7 @@ function Build-Index {
                     usage = if ($oldSkill.usage) { $oldSkill.usage } else { [pscustomobject]@{ status = 'unknown'; last_seen = $null; invocation_count = $null } }
                     agents = [pscustomobject]@{
                         claude = [ordered]@{ visible = $false; path = $null; reason = 'missing' }
-                        codex = [ordered]@{ visible = $false; path = $null; reason = 'stub adapter / not installed' }
+                        codex = [ordered]@{ visible = $false; path = $null; reason = 'not installed for codex' }
                         antigravity = [ordered]@{ visible = $false; path = $null; reason = 'missing' }
                     }
                 }
