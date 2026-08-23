@@ -32,7 +32,8 @@ jobs:
       - name: install tests
         run: |
           set +e
-          bash tests/test-install.sh > install-test.log 2>&1
+          export PS4='+ ${BASH_SOURCE}:${LINENO}: '
+          bash -x tests/test-install.sh > install-test.log 2>&1
           code=$?
           cat install-test.log
           if [ "$code" -ne 0 ]; then
