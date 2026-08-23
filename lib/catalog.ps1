@@ -150,10 +150,10 @@ function Get-FrontmatterField([string]$Frontmatter, [string]$Field) {
     $style = $null
     for ($i = 0; $i -lt $lineList.Count; $i++) {
         $trimmed = $lineList[$i].Trim()
-        $marker = [regex]::Match($trimmed, "^$($Field):\s*([>|])$")
+        $marker = [regex]::Match($trimmed, "^$($Field):\s*([>|][+-]?)$")
         if ($marker.Success) { $descIndex = $i; $style = $marker.Groups[1].Value; break }
-        if ([regex]::IsMatch($lineList[$i], "^$($Field):\s*\S")) { $descIndex = $i; break }
         if ($trimmed -eq "$($Field):") { $descIndex = $i; $style = 'list'; break }
+        if ([regex]::IsMatch($lineList[$i], "^$($Field):\s*\S")) { $descIndex = $i; break }
     }
     if ($descIndex -lt 0) { return '' }
     if ($null -eq $style) {
@@ -750,11 +750,12 @@ function Get-RewrittenDescription([string]$Desc) {
     }
 
     # Case C: 3rd person / introductory phrases with when
-    $patternCWhen = '^(?i)(?:this skill\s+(?:should be used|is used|can be used)\s+when\s+|use this skill\s+(?:when|whenever)\s+|used\s+(?:when|whenever)\s*)'
+    $patternCWhen = '^(?i)(?:(?:you\s+)?must\s+use\s+(?:this\s+(?:skill|before)\s+)?(?:when|before)\s+|this skill\s+(?:should be used|is used|can be used)\s+when\s+|use this skill\s+(?:when|whenever)\s+|used\s+(?:when|whenever)\s*)'
     if ($trimmed -match $patternCWhen) {
         $stripped = ($trimmed -replace $patternCWhen, '').Trim()
-        if ($stripped -match '^(?i)the user\b') {
-            return [pscustomobject]@{ Text = "Use when $stripped"; Changed = $true; Skip = $false; Reason = 'case c: 3rd person when user' }
+        if ($stripped -match '^(?i)(?:the\s+)?user\b') {
+            $cleanUser = $stripped -replace '^(?i)(?:the\s+)?user\b', 'the user'
+            return [pscustomobject]@{ Text = "Use when $cleanUser"; Changed = $true; Skip = $false; Reason = 'case c: 3rd person when user' }
         } else {
             $trimmed = $stripped
         }
@@ -1047,6 +1048,9 @@ switch ($Command) {
             $entry = @($fresh.skills | Where-Object { $_.name -eq $Name -or $_.install_name -eq $Name } | Select-Object -First 1)[0]
             if ($null -eq $entry) { throw "Skill not found: $Name" }
             Invoke-FixSkill $entry $DryRun $Yes
+            if (-not $DryRun) {
+                Write-Index (Build-Index)
+            }
         } else {
             $okSkills = @($fresh.skills | Where-Object { $_.status -eq 'ok' -and $_.health -eq 'ok' })
             if ($DryRun) {
@@ -1064,6 +1068,7 @@ switch ($Command) {
                 foreach ($s in $okSkills) {
                     Invoke-FixSkill $s $false $true
                 }
+                Write-Index (Build-Index)
             }
         }
     }

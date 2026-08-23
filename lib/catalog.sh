@@ -173,17 +173,17 @@ def extract_frontmatter_field(frontmatter, field_name):
     style = None
     for idx, line in enumerate(lines):
         trimmed = line.strip()
-        m = re.match(rf"^{field_name}:\s*([>|])$", trimmed)
+        m = re.match(rf"^{field_name}:\s*([>|][+-]?)$", trimmed)
         if m:
             desc_idx = idx
             style = m.group(1)
             break
-        if re.match(rf"^{field_name}:\s*\S", line):
-            desc_idx = idx
-            break
         if re.match(rf"^{field_name}:\s*$", line):
             desc_idx = idx
             style = "list"
+            break
+        if re.match(rf"^{field_name}:\s*\S", line):
+            desc_idx = idx
             break
     if desc_idx == -1:
         return ""
@@ -805,11 +805,12 @@ def rewrite_description(desc):
         clean = "Use when " + re.sub(r"^use when\s*", "", trimmed, flags=re.IGNORECASE)
         return clean, (clean != trimmed), False, "already compliant"
 
-    pattern_c_when = r"^(?:this skill\s+(?:should be used|is used|can be used)\s+when\s+|use this skill\s+(?:when|whenever)\s+|used\s+(?:when|whenever)\s*)"
+    pattern_c_when = r"^(?:(?:you\s+)?must\s+use\s+(?:this\s+(?:skill|before)\s+)?(?:when|before)\s+|this skill\s+(?:should be used|is used|can be used)\s+when\s+|use this skill\s+(?:when|whenever)\s+|used\s+(?:when|whenever)\s*)"
     if re.search(pattern_c_when, trimmed, flags=re.IGNORECASE):
         stripped = re.sub(pattern_c_when, "", trimmed, flags=re.IGNORECASE).strip()
-        if re.search(r"^the user\b", stripped, flags=re.IGNORECASE):
-            return f"Use when {stripped}", True, False, "case c: 3rd person when user"
+        if re.search(r"^(?:the\s+)?user\b", stripped, flags=re.IGNORECASE):
+            clean_user = re.sub(r"^(?:the\s+)?user\b", "the user", stripped, flags=re.IGNORECASE)
+            return f"Use when {clean_user}", True, False, "case c: 3rd person when user"
         else:
             trimmed = stripped
 
@@ -1006,90 +1007,104 @@ def fix_skill(entry, is_dry_run, is_assume_yes):
     print(f"fixed {entry['name']}: description rewritten, capabilities + category added")
     print(f"  trigger quality: {after_warnings} ⚠ (was {before_warnings} ⚠)")
 
-index = load_index()
+try:
+    index = load_index()
 
-if mode == "refresh":
-    index = build_index()
-    index = apply_registration(index)
-    write_index(index)
-    print_entries(index["skills"])
-elif mode == "capabilities":
-    print_capabilities(index)
-elif mode == "list":
-    print_entries(index.get("skills", []))
-elif mode == "find":
-    if not query.strip():
-        raise SystemExit("--find needs a query")
-    scored = []
-    for entry in index.get("skills", []):
-        sc = score(entry, query)
-        if sc > 0:
-            scored.append({"score": sc, "entry": entry})
-    scored.sort(key=lambda item: item["score"], reverse=True)
+    if mode == "refresh":
+        index = build_index()
+        index = apply_registration(index)
+        write_index(index)
+        print_entries(index["skills"])
+    elif mode == "capabilities":
+        print_capabilities(index)
+    elif mode == "list":
+        print_entries(index.get("skills", []))
+    elif mode == "find":
+        if not query.strip():
+            raise SystemExit("--find needs a query")
+        scored = []
+        for entry in index.get("skills", []):
+            sc = score(entry, query)
+            if sc > 0:
+                scored.append({"score": sc, "entry": entry})
+        scored.sort(key=lambda item: item["score"], reverse=True)
 
-    if not scored:
-        print(f'No matching skills for "{query}".')
-        raise SystemExit(0)
+        if not scored:
+            print(f'No matching skills for "{query}".')
+            raise SystemExit(0)
 
-    if json_output:
-        print(json.dumps([item["entry"] for item in scored], ensure_ascii=False, indent=2))
-        raise SystemExit(0)
+        if json_output:
+            print(json.dumps([item["entry"] for item in scored], ensure_ascii=False, indent=2))
+            raise SystemExit(0)
 
-    top_list = scored[:limit]
-    print(f'Matches for "{query}":\n')
-    for idx, item in enumerate(top_list):
-        num = idx + 1
-        entry = item["entry"]
-        sc_val = item["score"]
-        desc = entry.get("description") or "(no description)"
-        if len(desc) > 75:
-            desc = desc[:72] + "..."
-        print(f"  {num:>2}. {entry['name']:<28} (score: {sc_val})")
-        print(f"     {desc}\n")
-    print(f"Found {len(scored)} matches. Showing top {len(top_list)}.")
-elif mode == "show":
-    entry = next((item for item in index.get("skills", []) if item["name"] == requested_name or item.get("install_name") == requested_name), None)
-    if entry is None:
-        raise SystemExit(f"Skill not found: {requested_name}")
-    if json_output:
-        print(json.dumps(entry, ensure_ascii=False, indent=2))
-    else:
-        for key in ("name", "install_name", "description", "category", "source", "provenance", "source_path", "link_path", "discovered_at", "installed_at", "commit", "sha256", "status", "health"):
-            val = entry.get(key)
-            if key == "capabilities":
-                val = ", ".join(entry.get("capabilities", []))
-            print(f"{key}: {val}")
-        print(f"agents.claude.visible: {entry.get('agents', {}).get('claude', {}).get('visible')}")
-        print(f"usage.status: {entry.get('usage', {}).get('status', 'unknown')}")
-        print("invocation_hint: Ask Claude Code to use the named skill for a matching task. Automatic invocation is not observable by this catalog.")
-elif mode == "doctor":
-    fresh = build_index()
-    if requested_name:
-        doctor_single(requested_name, fresh)
-    else:
-        doctor_global(fresh)
-elif mode == "fix":
-    fresh = build_index()
-    if requested_name:
-        entry = next((item for item in fresh.get("skills", []) if item["name"] == requested_name or item.get("install_name") == requested_name), None)
+        top_list = scored[:limit]
+        print(f'Matches for "{query}":\n')
+        for idx, item in enumerate(top_list):
+            num = idx + 1
+            entry = item["entry"]
+            sc_val = item["score"]
+            desc = entry.get("description") or "(no description)"
+            if len(desc) > 75:
+                desc = desc[:72] + "..."
+            print(f"  {num:>2}. {entry['name']:<28} (score: {sc_val})")
+            print(f"     {desc}\n")
+        print(f"Found {len(scored)} matches. Showing top {len(top_list)}.")
+    elif mode == "show":
+        entry = next((item for item in index.get("skills", []) if item["name"] == requested_name or item.get("install_name") == requested_name), None)
         if entry is None:
             raise SystemExit(f"Skill not found: {requested_name}")
-        fix_skill(entry, dry_run, assume_yes)
-    else:
-        ok_skills = [s for s in fresh.get("skills", []) if s.get("status") == "ok" and s.get("health") == "ok"]
-        if dry_run:
-            for s in ok_skills:
-                fix_skill(s, True, True)
+        if json_output:
+            print(json.dumps(entry, ensure_ascii=False, indent=2))
         else:
-            if not assume_yes:
-                try:
-                    ans = input(f"This will rewrite {len(ok_skills)} skills. Continue? [y/N] ").strip().lower()
-                except (EOFError, KeyboardInterrupt):
-                    ans = "n"
-                if ans not in ("y", "yes"):
-                    print("Operation cancelled.")
-                    raise SystemExit(0)
-            for s in ok_skills:
-                fix_skill(s, False, True)
+            for key in ("name", "install_name", "description", "category", "source", "provenance", "source_path", "link_path", "discovered_at", "installed_at", "commit", "sha256", "status", "health"):
+                val = entry.get(key)
+                if key == "capabilities":
+                    val = ", ".join(entry.get("capabilities", []))
+                print(f"{key}: {val}")
+            print(f"agents.claude.visible: {entry.get('agents', {}).get('claude', {}).get('visible')}")
+            print(f"usage.status: {entry.get('usage', {}).get('status', 'unknown')}")
+            print("invocation_hint: Ask Claude Code to use the named skill for a matching task. Automatic invocation is not observable by this catalog.")
+    elif mode == "doctor":
+        fresh = build_index()
+        if requested_name:
+            doctor_single(requested_name, fresh)
+        else:
+            doctor_global(fresh)
+    elif mode == "fix":
+        fresh = build_index()
+        if requested_name:
+            entry = next((item for item in fresh.get("skills", []) if item["name"] == requested_name or item.get("install_name") == requested_name), None)
+            if entry is None:
+                raise SystemExit(f"Skill not found: {requested_name}")
+            fix_skill(entry, dry_run, assume_yes)
+            if not dry_run:
+                write_index(build_index())
+        else:
+            ok_skills = [s for s in fresh.get("skills", []) if s.get("status") == "ok" and s.get("health") == "ok"]
+            if dry_run:
+                for s in ok_skills:
+                    fix_skill(s, True, True)
+            else:
+                if not assume_yes:
+                    try:
+                        ans = input(f"This will rewrite {len(ok_skills)} skills. Continue? [y/N] ").strip().lower()
+                    except (EOFError, KeyboardInterrupt):
+                        ans = "n"
+                    if ans not in ("y", "yes"):
+                        print("Operation cancelled.")
+                        raise SystemExit(0)
+                for s in ok_skills:
+                    fix_skill(s, False, True)
+                write_index(build_index())
+except (BrokenPipeError, IOError, OSError):
+    try:
+        sys.stdout.close()
+    except Exception:
+        pass
+    try:
+        sys.stderr.close()
+    except Exception:
+        pass
+    sys.exit(0)
 PY
 
