@@ -30,9 +30,9 @@ jobs:
         with:
           python-version: '3.x'
       - name: install tests
-        run: bash -x tests/test-install.sh
+        run: bash tests/test-install.sh
       - name: catalog tests
-        run: bash -x tests/test-catalog.sh
+        run: bash tests/test-catalog.sh
 
   powershell-tests:
     name: PowerShell (Windows)
