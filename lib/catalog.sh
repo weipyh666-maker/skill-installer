@@ -632,7 +632,7 @@ def build_index():
                     "agents": {
                         "claude": {"visible": False, "path": None, "reason": "missing"},
                         "codex": {"visible": False, "path": None, "reason": "stub adapter / not installed"},
-                        "antigravity": {"visible": False, "path": None, "reason": "stub adapter / not installed"}
+                        "antigravity": {"visible": False, "path": None, "reason": "missing"}
                     },
                 }
                 entries.append(missing_entry)

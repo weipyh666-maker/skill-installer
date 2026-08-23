@@ -9,16 +9,34 @@ function Get-AntigravityStatus {
     if ($cmd) {
         $cliFound = $true
         $cliPath = $cmd.Source
-    } elseif (Test-Path 'D:\Antigravity\cli\bin\agy.exe' -PathType Leaf) {
+    } elseif ($env:ANTIGRAVITY_CLI_PATH -and (Test-Path -LiteralPath $env:ANTIGRAVITY_CLI_PATH -PathType Leaf)) {
+        # 2. ANTIGRAVITY_CLI_PATH environment variable
         $cliFound = $true
-        $cliPath = 'D:\Antigravity\cli\bin\agy.exe'
+        $cliPath = $env:ANTIGRAVITY_CLI_PATH
+    } else {
+        # 3. Standard user installation locations
+        $candidates = @(
+            (Join-Path $env:LOCALAPPDATA 'agy\bin\agy.exe'),
+            (Join-Path $env:LOCALAPPDATA 'antigravity\bin\antigravity.exe'),
+            (Join-Path $HOME 'bin\agy.exe'),
+            (Join-Path $HOME 'bin\antigravity.exe'),
+            (Join-Path $HOME '.local\bin\agy.exe'),
+            (Join-Path $HOME '.local\bin\antigravity.exe')
+        )
+        foreach ($cand in $candidates) {
+            if ($cand -and (Test-Path -LiteralPath $cand -PathType Leaf)) {
+                $cliFound = $true
+                $cliPath = $cand
+                break
+            }
+        }
     }
 
-    # 2. Check app data directory
+    # 4. Check app data directory
     $appData = Join-Path (Join-Path $HOME '.gemini') 'antigravity-cli'
     $appDataFound = (Test-Path -LiteralPath $appData -PathType Container) -or (Test-Path (Join-Path $HOME '.antigravity') -PathType Container)
 
-    # 3. Check skills directory
+    # 5. Check skills directory
     $globalSkills = Get-AntigravityGlobalSkillDir
     $skillsFound = (Test-Path -LiteralPath $globalSkills -PathType Container)
 

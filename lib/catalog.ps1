@@ -516,7 +516,7 @@ function Build-Index {
                     agents = [pscustomobject]@{
                         claude = [ordered]@{ visible = $false; path = $null; reason = 'missing' }
                         codex = [ordered]@{ visible = $false; path = $null; reason = 'stub adapter / not installed' }
-                        antigravity = [ordered]@{ visible = $false; path = $null; reason = 'stub adapter / not installed' }
+                        antigravity = [ordered]@{ visible = $false; path = $null; reason = 'missing' }
                     }
                 }
                 $entries.Add([pscustomobject]$missingEntry)
