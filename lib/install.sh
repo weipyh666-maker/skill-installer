@@ -200,6 +200,12 @@ codex_protected_target() {
     [[ "$AGENT" == 'codex' ]] || return 1
     local candidate protected
     candidate="$(canonical_path "$1")"
+    if [[ -z "$candidate" || "$candidate" == "$1" ]]; then
+        local parent leaf resolved_parent
+        parent="$(dirname -- "$1")"; leaf="$(basename -- "$1")"
+        resolved_parent="$(canonical_path "$parent")"
+        [[ -n "$resolved_parent" ]] && candidate="$resolved_parent/$leaf"
+    fi
     for protected in "$(get_codex_system_skill_root)" "$(get_codex_admin_skill_root || true)"; do
         [[ -n "$protected" ]] || continue
         protected="$(canonical_path "$protected")"

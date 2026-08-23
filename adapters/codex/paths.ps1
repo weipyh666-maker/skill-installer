@@ -24,6 +24,9 @@ function Get-CodexPluginSkillRoots {
 
 function Resolve-CodexPath([string]$Path) {
     if (Test-Path -LiteralPath $Path) { return (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) }
+    $parent = Split-Path -Parent $Path
+    $leaf = Split-Path -Leaf $Path
+    if ($parent -and (Test-Path -LiteralPath $parent)) { return (Join-Path ((Resolve-Path -LiteralPath $parent -ErrorAction Stop).Path) $leaf).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) }
     return [IO.Path]::GetFullPath($Path).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
 }
 
