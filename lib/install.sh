@@ -28,6 +28,10 @@ TEMP_ROOT=''
 AGENT=''
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../adapters/_base.sh"
+source "$SCRIPT_DIR/../adapters/claude/paths.sh"
+source "$SCRIPT_DIR/../adapters/claude/detect.sh"
+source "$SCRIPT_DIR/../adapters/antigravity/paths.sh"
+source "$SCRIPT_DIR/../adapters/antigravity/detect.sh"
 
 usage() {
     sed -n '1,35p' "$0"
@@ -254,15 +258,31 @@ assert_safe_name "$NAME"
 
 AGENT="$(resolve_agent "$AGENT")"
 validate_agent "$AGENT" || exit 1
-if [[ "$AGENT" != "claude" ]]; then
-    echo "not-yet-implemented: see adapters/$AGENT/stub-note.md" >&2
+if [[ "$AGENT" == "codex" ]]; then
+    echo "not-yet-implemented: see adapters/codex/stub-note.md" >&2
     exit 1
 fi
 
-SKILLS_DIR="${CLAUDE_SKILLS_DIR:-$HOME/Claude-Code}"
-LINK_BASE="${CLAUDE_SKILLS_LINK_DIR:-$HOME/.claude/skills}"
+if [[ "$AGENT" == "antigravity" ]]; then
+    SKILLS_DIR="$(get_antigravity_source_dir)"
+    LINK_BASE="$(get_antigravity_link_dir)"
+    BUILTIN_DIR="$(get_antigravity_builtin_dir)"
+else
+    SKILLS_DIR="$(get_claude_source_dir)"
+    LINK_BASE="$(get_claude_link_dir)"
+    BUILTIN_DIR=""
+fi
+
 SOURCE_PATH="$SKILLS_DIR/$NAME"
 LINK_PATH="$LINK_BASE/$NAME"
+
+if [[ -n "$BUILTIN_DIR" && -d "$BUILTIN_DIR" ]]; then
+    target_full="$(canonical_path "$SOURCE_PATH")"
+    builtin_full="$(canonical_path "$BUILTIN_DIR")"
+    if [[ "$target_full" == "$builtin_full"* ]]; then
+        fail "Cannot install into Antigravity builtin skills directory. Use user skill directory $SKILLS_DIR"
+    fi
+fi
 assert_child_path "$SKILLS_DIR" "$SOURCE_PATH" 'source path'
 assert_child_path "$LINK_BASE" "$LINK_PATH" 'link path'
 
@@ -377,10 +397,15 @@ else
 fi
 
 step 3 'Create link'
-mkdir -p "$LINK_BASE"
-if [[ "$link_exists" -eq 1 ]]; then remove_install_entry "$LINK_PATH"; fi
-INSTALL_MODE="$(create_install_link "$SOURCE_PATH" "$LINK_PATH")"
-ok "$INSTALL_MODE: $SOURCE_PATH -> $LINK_PATH"
+if [[ "$SOURCE_PATH" == "$LINK_PATH" ]]; then
+    INSTALL_MODE='in-place'
+    ok "installed in-place at $SOURCE_PATH"
+else
+    mkdir -p "$LINK_BASE"
+    if [[ "$link_exists" -eq 1 ]]; then remove_install_entry "$LINK_PATH"; fi
+    INSTALL_MODE="$(create_install_link "$SOURCE_PATH" "$LINK_PATH")"
+    ok "$INSTALL_MODE: $SOURCE_PATH -> $LINK_PATH"
+fi
 
 step 4 'Verify skill contract'
 assert_skill_layout "$SOURCE_PATH"

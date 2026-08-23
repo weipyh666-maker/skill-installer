@@ -19,6 +19,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\..\adapters\_base.ps1"
+. "$PSScriptRoot\..\adapters\claude\paths.ps1"
+. "$PSScriptRoot\..\adapters\claude\detect.ps1"
+. "$PSScriptRoot\..\adapters\antigravity\paths.ps1"
+. "$PSScriptRoot\..\adapters\antigravity\detect.ps1"
 . "$PSScriptRoot\..\core\search.ps1"
 . "$PSScriptRoot\..\core\doctor.ps1"
 
@@ -37,9 +41,25 @@ function Get-FullPath([string]$Path) {
     return [IO.Path]::GetFullPath($Path)
 }
 
-$SkillsDir = if ($env:CLAUDE_SKILLS_DIR) { Get-FullPath $env:CLAUDE_SKILLS_DIR } else { Get-FullPath (Join-Path $env:USERPROFILE 'Claude-Code') }
-$LinkDir = if ($env:CLAUDE_SKILLS_LINK_DIR) { Get-FullPath $env:CLAUDE_SKILLS_LINK_DIR } else { Get-FullPath (Join-Path $env:USERPROFILE '.claude\skills') }
-$IndexPath = if ($env:CLAUDE_SKILLS_INDEX_PATH) { Get-FullPath $env:CLAUDE_SKILLS_INDEX_PATH } else { Join-Path $SkillsDir 'installed-skills-index.json' }
+# Multi-agent path resolution
+$ClaudeSkillsDir = Get-ClaudeSourceDir
+$ClaudeLinkDir = Get-ClaudeLinkDir
+$ClaudeIndexPath = Get-ClaudeIndexPath
+
+$AntigravitySkillsDir = Get-AntigravitySourceDir
+$AntigravityLinkDir = Get-AntigravityLinkDir
+$AntigravityBuiltinDir = Get-AntigravityBuiltinDir
+$AntigravityIndexPath = Get-AntigravityIndexPath
+
+if ($resolvedAgent -eq 'antigravity') {
+    $SkillsDir = Get-FullPath $AntigravitySkillsDir
+    $LinkDir = Get-FullPath $AntigravityLinkDir
+    $IndexPath = Get-FullPath $AntigravityIndexPath
+} else {
+    $SkillsDir = Get-FullPath $ClaudeSkillsDir
+    $LinkDir = Get-FullPath $ClaudeLinkDir
+    $IndexPath = Get-FullPath $ClaudeIndexPath
+}
 
 $ActionVerbsMap = [ordered]@{
     'creating' = 'create'; 'building' = 'build'; 'generating' = 'generate'; 'analyzing' = 'analyze';
@@ -350,16 +370,22 @@ function Build-Index {
         $root = $candidate.Root
         $skillPath = Join-Path $candidate.Path 'SKILL.md'
 
-        $hasLink = Test-Path -LiteralPath (Join-Path $LinkDir $name)
-        $hasSource = Test-Path -LiteralPath (Join-Path $SkillsDir $name)
-        $linkPathStr = if ($hasLink) { "`$CLAUDE_SKILLS_LINK_DIR/$name" } else { '' }
-        $sourcePathStr = "`$CLAUDE_SKILLS_DIR/$name"
+        $hasClaudeLink = Test-Path -LiteralPath (Join-Path $ClaudeLinkDir $name)
+        $hasClaudeSource = Test-Path -LiteralPath (Join-Path $ClaudeSkillsDir $name)
+        $hasAntigravityLink = Test-Path -LiteralPath (Join-Path $AntigravityLinkDir $name)
+        $hasAntigravitySource = Test-Path -LiteralPath (Join-Path $AntigravitySkillsDir $name)
+
+        $claudeVis = ($hasClaudeLink -or ($resolvedAgent -eq 'claude' -and $hasClaudeSource))
+        $antigravityVis = ($hasAntigravityLink -or $hasAntigravitySource -or ($resolvedAgent -eq 'antigravity' -and (Test-Path -LiteralPath $candidate.Path)))
+
+        $linkPathStr = if ($hasClaudeLink) { "`$CLAUDE_SKILLS_LINK_DIR/$name" } elseif ($hasAntigravityLink) { "`$ANTIGRAVITY_SKILLS_LINK_DIR/$name" } else { '' }
+        $sourcePathStr = if ($resolvedAgent -eq 'antigravity') { "`$ANTIGRAVITY_SKILLS_DIR/$name" } else { "`$CLAUDE_SKILLS_DIR/$name" }
 
         $agents = [ordered]@{
             claude = [ordered]@{
-                visible = $hasLink
-                path = if ($hasLink) { $linkPathStr } else { $null }
-                reason = if ($hasLink) { 'link present' } else { 'link missing or broken' }
+                visible = [bool]$claudeVis
+                path = if ($claudeVis) { (Join-Path $ClaudeLinkDir $name) } else { $null }
+                reason = if ($claudeVis) { 'link present' } else { 'not installed for claude' }
             }
             codex = [ordered]@{
                 visible = $false
@@ -367,9 +393,9 @@ function Build-Index {
                 reason = 'stub adapter / not installed'
             }
             antigravity = [ordered]@{
-                visible = $false
-                path = $null
-                reason = 'stub adapter / not installed'
+                visible = [bool]$antigravityVis
+                path = if ($antigravityVis) { (Join-Path $AntigravityLinkDir $name) } else { $null }
+                reason = if ($antigravityVis) { 'discovered-in-antigravity-global-skill-root' } else { 'not installed for antigravity' }
             }
         }
 
@@ -671,13 +697,22 @@ function Format-Capabilities($IndexData, $TargetSkills) {
 
 function Invoke-DoctorGlobal($IndexData) {
     $skills = @($IndexData.skills)
-    $scannedCount = $skills.Count
-    $brokenList = @($skills | Where-Object { $_.status -ne 'ok' -or $_.health -eq 'broken' })
-    $missingList = @($skills | Where-Object { $_.health -eq 'missing' })
+    $targetSkills = Filter-SkillsByAgent $skills $resolvedAgent $AllAgents
+    $scannedCount = $targetSkills.Count
+    $brokenList = @($targetSkills | Where-Object { $_.status -ne 'ok' -or $_.health -eq 'broken' })
+    $missingList = @($targetSkills | Where-Object { $_.health -eq 'missing' })
     $healthyCount = [Math]::Max(0, ($scannedCount - $brokenList.Count - $missingList.Count))
 
-    Write-Host "doctor: scanned $scannedCount skills"
-    Write-Host "  healthy: $healthyCount"
+    if ($resolvedAgent -eq 'antigravity') {
+        $status = Get-AntigravityStatus
+        Write-Host "doctor: scanned $scannedCount skills for agent 'antigravity'"
+        Write-Host "  environment: $(if ($status.CliDetected) { 'CLI detected (' + $status.CliPath + ')' } elseif ($status.SkillsDirDetected) { 'skills directory detected' } else { 'not detected' })"
+        Write-Host "  discovery root: $($status.GlobalSkillsDir)"
+        Write-Host "  healthy: $healthyCount"
+    } else {
+        Write-Host "doctor: scanned $scannedCount skills"
+        Write-Host "  healthy: $healthyCount"
+    }
     if ($brokenList.Count -gt 0) {
         $brokenNames = ($brokenList | ForEach-Object { $_.name }) -join ', '
         Write-Host "  broken: $($brokenList.Count) ($brokenNames)"
@@ -693,7 +728,7 @@ function Invoke-DoctorGlobal($IndexData) {
     }
 
     $healthyScores = [System.Collections.Generic.List[object]]::new()
-    $healthyList = @($skills | Where-Object { $_.status -eq 'ok' -and $_.health -eq 'ok' })
+    $healthyList = @($targetSkills | Where-Object { $_.status -eq 'ok' -and $_.health -eq 'ok' })
     foreach ($s in $healthyList) {
         $sDir = if ($s.install_name) { $s.install_name } else { $s.name }
         $sFile = Join-Path $SkillsDir (Join-Path $sDir 'SKILL.md')
@@ -1237,8 +1272,8 @@ $index = if (Test-Path -LiteralPath $IndexPath) {
 
 switch ($Command) {
     'refresh' {
-        if ($resolvedAgent -ne 'claude') {
-            throw "not-yet-implemented: see adapters/$resolvedAgent/stub-note.md"
+        if ($resolvedAgent -eq 'codex') {
+            throw "not-yet-implemented: see adapters/codex/stub-note.md"
         }
         $fresh = Build-Index
         $fresh = Apply-Registration $fresh
@@ -1331,8 +1366,8 @@ switch ($Command) {
         }
     }
     'doctor' {
-        if ($resolvedAgent -ne 'claude' -and -not $AllAgents) {
-            Write-Host "doctor: agent '$resolvedAgent' is a stub adapter (not-yet-implemented). No skills installed."
+        if ($resolvedAgent -eq 'codex' -and -not $AllAgents) {
+            Write-Host "doctor: agent 'codex' is a stub adapter (not-yet-implemented). No skills installed."
             exit 0
         }
         $fresh = Build-Index
@@ -1343,8 +1378,8 @@ switch ($Command) {
         }
     }
     'fix' {
-        if ($resolvedAgent -ne 'claude') {
-            throw "not-yet-implemented: see adapters/$resolvedAgent/stub-note.md"
+        if ($resolvedAgent -eq 'codex') {
+            throw "not-yet-implemented: see adapters/codex/stub-note.md"
         }
         $fresh = Build-Index
         if ($Name) {

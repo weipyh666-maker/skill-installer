@@ -4,6 +4,7 @@ $global:SupportedAgents = @('claude', 'codex', 'antigravity')
 
 function Resolve-AgentName([string]$Requested) {
     if ($Requested) { return $Requested.ToLowerInvariant() }
+    if ($env:SKILL_MANAGER_AGENT) { return $env:SKILL_MANAGER_AGENT.ToLowerInvariant() }
     if ($env:CLAUDE_SKILLS_AGENT) { return $env:CLAUDE_SKILLS_AGENT.ToLowerInvariant() }
     return 'claude'
 }

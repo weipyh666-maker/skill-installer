@@ -31,6 +31,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\..\adapters\_base.ps1"
+. "$PSScriptRoot\..\adapters\claude\paths.ps1"
+. "$PSScriptRoot\..\adapters\claude\detect.ps1"
+. "$PSScriptRoot\..\adapters\antigravity\paths.ps1"
+. "$PSScriptRoot\..\adapters\antigravity\detect.ps1"
 $IsWindowsHost = $env:OS -eq 'Windows_NT'
 $TempRoot = $null
 $Mode = $null
@@ -209,13 +213,13 @@ function Update-MemoryRecord([string]$Path, [string]$SkillName, [string]$RepoNam
     return "appended to $Path"
 }
 
-function Refresh-CatalogIndex([string]$SkillName, [string]$RepoName, [string]$Commit, [string]$Digest) {
+function Refresh-CatalogIndex([string]$SkillName, [string]$RepoName, [string]$Commit, [string]$Digest, [string]$AgentName) {
     $catalogScript = Join-Path $PSScriptRoot 'catalog.ps1'
     if (-not (Test-Path -LiteralPath $catalogScript -PathType Leaf)) { return 'catalog script not found (skip)' }
     $hostCommand = @(Get-Command pwsh, powershell.exe -ErrorAction SilentlyContinue | Select-Object -First 1)[0]
     if ($null -eq $hostCommand) { return 'PowerShell host not found (skip)' }
     $sourceDescriptor = if ($RepoName) { "github:$RepoName" } else { 'local' }
-    $arguments = @('-NoProfile', '-File', $catalogScript, '-Command', 'refresh', '-RegisterName', $SkillName, '-RegisterSource', $sourceDescriptor, '-RegisterInstalledAt', [DateTime]::UtcNow.ToString('o'))
+    $arguments = @('-NoProfile', '-File', $catalogScript, '-Command', 'refresh', '-Agent', $AgentName, '-RegisterName', $SkillName, '-RegisterSource', $sourceDescriptor, '-RegisterInstalledAt', [DateTime]::UtcNow.ToString('o'))
     if ($Commit) { $arguments += @('-RegisterCommit', $Commit) }
     if ($Digest) { $arguments += @('-RegisterSha256', $Digest) }
     & $hostCommand.Source @arguments *> $null
@@ -251,16 +255,32 @@ try {
     if (-not (Test-ValidAgentName $resolvedAgent)) {
         Fail "Unknown agent '$resolvedAgent'. Supported agents: $($global:SupportedAgents -join ', ')"
     }
-    if ($resolvedAgent -ne 'claude') {
-        Fail "not-yet-implemented: see adapters/$resolvedAgent/stub-note.md"
+    if ($resolvedAgent -eq 'codex') {
+        Fail "not-yet-implemented: see adapters/codex/stub-note.md"
     }
 
-    $SkillsDir = if ($env:CLAUDE_SKILLS_DIR) { $env:CLAUDE_SKILLS_DIR } else { Join-Path $env:USERPROFILE 'Claude-Code' }
-    $LinkBase = if ($env:CLAUDE_SKILLS_LINK_DIR) { $env:CLAUDE_SKILLS_LINK_DIR } else { Join-Path $env:USERPROFILE '.claude\skills' }
+    if ($resolvedAgent -eq 'antigravity') {
+        $SkillsDir = Get-AntigravitySourceDir
+        $LinkBase = Get-AntigravityLinkDir
+        $BuiltinDir = Get-AntigravityBuiltinDir
+    } else {
+        $SkillsDir = Get-ClaudeSourceDir
+        $LinkBase = Get-ClaudeLinkDir
+        $BuiltinDir = $null
+    }
+
     $SourcePath = Join-Path $SkillsDir $Name
     $LinkPath = Join-Path $LinkBase $Name
     Assert-ChildPath $SkillsDir $SourcePath 'Source path'
     Assert-ChildPath $LinkBase $LinkPath 'Link path'
+
+    if ($BuiltinDir -and (Test-Path -LiteralPath $BuiltinDir)) {
+        $builtinFull = (Get-FullPath $BuiltinDir).TrimEnd('\')
+        $targetFull = (Get-FullPath $SourcePath).TrimEnd('\')
+        if ($targetFull.StartsWith($builtinFull, [StringComparison]::OrdinalIgnoreCase)) {
+            Fail "Cannot install into Antigravity builtin skills directory. Use user skill directory $SkillsDir"
+        }
+    }
 
     Write-Step 1 'Pre-flight and input validation'
     $GhAvailable = $false
@@ -403,9 +423,14 @@ try {
     }
 
     Write-Step 3 'Create link'
-    if ($linkExists) { Remove-InstallEntry $LinkPath }
-    $InstallMode = Create-InstallLink $SourcePath $LinkPath
-    Write-Ok "$($InstallMode): $SourcePath -> $LinkPath"
+    if ($SourcePath -eq $LinkPath) {
+        $InstallMode = 'in-place'
+        Write-Ok "installed in-place at $SourcePath"
+    } else {
+        if ($linkExists) { Remove-InstallEntry $LinkPath }
+        $InstallMode = Create-InstallLink $SourcePath $LinkPath
+        Write-Ok "$($InstallMode): $SourcePath -> $LinkPath"
+    }
 
     Write-Step 4 'Verify skill contract'
     Assert-SkillLayout $SourcePath
@@ -438,7 +463,7 @@ try {
     if ($SkipCatalogUpdate -or $env:SKIP_CATALOG_UPDATE) {
         $CatalogResult = 'not run (opt-out)'
     } else {
-        $CatalogResult = Refresh-CatalogIndex $Name $Repo $ResolvedCommit $DownloadedDigest
+        $CatalogResult = Refresh-CatalogIndex $Name $Repo $ResolvedCommit $DownloadedDigest $resolvedAgent
     }
     Write-Ok $CatalogResult
     Write-Host ''

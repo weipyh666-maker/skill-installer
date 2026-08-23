@@ -214,7 +214,7 @@ function Get-SkillScoreAndReason($Entry, [string]$Query, [string[]]$Terms) {
                 $score += 25
                 if (-not $hitCaps.Contains($c)) { $hitCaps.Add($c) }
                 break
-            } elseif ($t.Length -ge 3 -and ($c.Contains($t) -or $t.Contains($c))) {
+            } elseif ($t.Length -ge 4 -and $c.Length -ge 4 -and ($c.Contains($t) -or $t.Contains($c)) -and $c -notin @('skill', 'other', 'tools')) {
                 $score += 15
                 if (-not $hitCaps.Contains($c)) { $hitCaps.Add($c) }
                 break

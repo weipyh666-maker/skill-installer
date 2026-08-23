@@ -271,9 +271,9 @@ caps_codex="$(bash "$CATALOG" --capabilities --agent codex)"
 caps_all="$(bash "$CATALOG" --capabilities --agent codex --all-agents)"
 [[ "$caps_all" =~ "Development" ]]
 
-# D. CLAUDE_SKILLS_AGENT=antigravity environment variable
-caps_anti="$(CLAUDE_SKILLS_AGENT=antigravity bash "$CATALOG" --capabilities)"
-[[ "$caps_anti" =~ "No visible skills for agent 'antigravity'" ]]
+# D. CLAUDE_SKILLS_AGENT=codex environment variable
+caps_codex_env="$(CLAUDE_SKILLS_AGENT=codex bash "$CATALOG" --capabilities)"
+[[ "$caps_codex_env" =~ "No visible skills for agent 'codex'" ]]
 
 # E. Show command displays per-agent visibility
 show_out="$(bash "$CATALOG" --show case-b-skill)"

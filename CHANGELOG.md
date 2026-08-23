@@ -1,3 +1,16 @@
+## [3.2.0] - 2026-08-23
+
+### Added
+- **Antigravity Native Adapter**: First-class support for Antigravity CLI and Agent environment (`adapters/antigravity/paths.{ps1,sh}`, `adapters/antigravity/detect.{ps1,sh}`).
+- **Multi-Agent Discovery & Visibility**: Catalog Schema v3 accurately tracks `agents.antigravity.visible`, `agents.antigravity.path`, and discovery reasons alongside Claude Code.
+- **Antigravity Global & In-place Install**: Safe installation directly into Antigravity global skill directory (`~/.agents/skills/`) with built-in protection for system builtin skills (`~/.gemini/antigravity-cli/builtin/skills/`).
+- **Comprehensive Antigravity Test Suite**: Dedicated automated test suites (`tests/test-antigravity.ps1` and `tests/test-antigravity.sh`) testing detection, path resolution, multi-agent scan, capabilities, find, doctor, and safe install/force-backup.
+- **CI Integration**: Added `antigravity-adapter` (Ubuntu) and `antigravity-adapter-ps` (Windows) jobs to GitHub Actions workflow matrix (10/10 jobs).
+
+### Changed
+- Standardized environment variable resolution across agents (`SKILL_MANAGER_*` priority over `CLAUDE_SKILLS_*`).
+- Generic capability substring matching in search engine hardened against generic tokens (`skill`, `other`, `tools`).
+
 # Changelog
 
 ## [3.1.2] — 2026-08-23

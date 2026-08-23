@@ -204,6 +204,15 @@ set -e
 }
 
 set +e
+agent_antigravity_out="$(bash "$INSTALLER" --local "$FIXTURE" --name minimal-skill --agent antigravity --dry-run 2>&1)"
+agent_antigravity_status=$?
+set -e
+[[ "$agent_antigravity_status" -eq 0 ]] || {
+    echo "ASSERTION FAILED: --agent antigravity should succeed: $agent_antigravity_out" >&2
+    exit 1
+}
+
+set +e
 agent_codex_out="$(bash "$INSTALLER" --local "$FIXTURE" --name minimal-skill --agent codex --dry-run 2>&1)"
 agent_codex_status=$?
 set -e
@@ -214,13 +223,13 @@ set -e
 assert_contains "$agent_codex_out" "not-yet-implemented: see adapters/codex/stub-note.md"
 
 set +e
-agent_antigravity_out="$(CLAUDE_SKILLS_AGENT=antigravity bash "$INSTALLER" --local "$FIXTURE" --name minimal-skill --dry-run 2>&1)"
-agent_antigravity_status=$?
+agent_codex_env_out="$(CLAUDE_SKILLS_AGENT=codex bash "$INSTALLER" --local "$FIXTURE" --name minimal-skill --dry-run 2>&1)"
+agent_codex_env_status=$?
 set -e
-[[ "$agent_antigravity_status" -ne 0 ]] || {
-    echo "ASSERTION FAILED: CLAUDE_SKILLS_AGENT=antigravity should fail with stub error" >&2
+[[ "$agent_codex_env_status" -ne 0 ]] || {
+    echo "ASSERTION FAILED: CLAUDE_SKILLS_AGENT=codex should fail with stub error" >&2
     exit 1
 }
-assert_contains "$agent_antigravity_out" "not-yet-implemented: see adapters/antigravity/stub-note.md"
+assert_contains "$agent_codex_env_out" "not-yet-implemented: see adapters/codex/stub-note.md"
 
 echo 'PASS: installer regression tests'

@@ -40,6 +40,8 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $linkRoot 'broken-skill') -Force | Out-Null
     $env:CLAUDE_SKILLS_DIR = $sourceRoot
     $env:CLAUDE_SKILLS_LINK_DIR = $linkRoot
+    $env:ANTIGRAVITY_SKILLS_DIR = (Join-Path $sandbox 'agy_sources')
+    $env:ANTIGRAVITY_SKILLS_LINK_DIR = (Join-Path $sandbox 'agy_links')
 
     $refresh = Invoke-Catalog @('-Command', 'refresh')
     Assert-True ($refresh.ExitCode -eq 0) "refresh should succeed: $($refresh.Output)"
@@ -234,12 +236,12 @@ try {
     $capsAll = Invoke-Catalog @('-Command', 'capabilities', '-Agent', 'codex', '-AllAgents')
     Assert-True ($capsAll.Output -match 'Development') 'all-agents should see development category'
 
-    # D. CLAUDE_SKILLS_AGENT=antigravity environment variable
+    # D. CLAUDE_SKILLS_AGENT=codex environment variable
     $oldAgentVar = $env:CLAUDE_SKILLS_AGENT
     try {
-        $env:CLAUDE_SKILLS_AGENT = 'antigravity'
-        $capsAnti = Invoke-Catalog @('-Command', 'capabilities')
-        Assert-True ($capsAnti.Output -match "No visible skills for agent 'antigravity'") 'env CLAUDE_SKILLS_AGENT=antigravity should report 0 visible skills'
+        $env:CLAUDE_SKILLS_AGENT = 'codex'
+        $capsCodexEnv = Invoke-Catalog @('-Command', 'capabilities')
+        Assert-True ($capsCodexEnv.Output -match "No visible skills for agent 'codex'") 'env CLAUDE_SKILLS_AGENT=codex should report 0 visible skills'
     } finally {
         $env:CLAUDE_SKILLS_AGENT = $oldAgentVar
     }

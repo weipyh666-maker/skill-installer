@@ -127,16 +127,19 @@ try {
     $agentClaude = Invoke-Installer @('-LocalPath', $fixture, '-Name', 'minimal-skill', '-Agent', 'claude', '-DryRun')
     Assert-True ($agentClaude.ExitCode -eq 0) "Agent claude should succeed. Output: $($agentClaude.Output)"
 
+    $agentAntigravity = Invoke-Installer @('-LocalPath', $fixture, '-Name', 'minimal-skill', '-Agent', 'antigravity', '-DryRun')
+    Assert-True ($agentAntigravity.ExitCode -eq 0) "Agent antigravity should succeed. Output: $($agentAntigravity.Output)"
+
     $agentCodex = Invoke-Installer @('-LocalPath', $fixture, '-Name', 'minimal-skill', '-Agent', 'codex', '-DryRun')
     Assert-True ($agentCodex.ExitCode -ne 0) 'Agent codex should fail with stub error'
     Assert-True ($agentCodex.Output -match 'not-yet-implemented: see adapters/codex/stub-note.md') 'Agent codex should mention stub note'
 
     $oldSkillsAgent = $env:CLAUDE_SKILLS_AGENT
     try {
-        $env:CLAUDE_SKILLS_AGENT = 'antigravity'
-        $agentAnti = Invoke-Installer @('-LocalPath', $fixture, '-Name', 'minimal-skill', '-DryRun')
-        Assert-True ($agentAnti.ExitCode -ne 0) 'CLAUDE_SKILLS_AGENT=antigravity should fail with stub error'
-        Assert-True ($agentAnti.Output -match 'not-yet-implemented: see adapters/antigravity/stub-note.md') 'Agent antigravity should mention stub note'
+        $env:CLAUDE_SKILLS_AGENT = 'codex'
+        $agentCodexEnv = Invoke-Installer @('-LocalPath', $fixture, '-Name', 'minimal-skill', '-DryRun')
+        Assert-True ($agentCodexEnv.ExitCode -ne 0) 'CLAUDE_SKILLS_AGENT=codex should fail with stub error'
+        Assert-True ($agentCodexEnv.Output -match 'not-yet-implemented: see adapters/codex/stub-note.md') 'Agent codex should mention stub note'
     } finally {
         $env:CLAUDE_SKILLS_AGENT = $oldSkillsAgent
     }

@@ -42,6 +42,10 @@ USAGE
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../adapters/_base.sh"
+source "$SCRIPT_DIR/../adapters/claude/paths.sh"
+source "$SCRIPT_DIR/../adapters/claude/detect.sh"
+source "$SCRIPT_DIR/../adapters/antigravity/paths.sh"
+source "$SCRIPT_DIR/../adapters/antigravity/detect.sh"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -91,6 +95,7 @@ import sys
 import uuid
 import hashlib
 from pathlib import Path
+import shutil
 
 for stream in (sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure"):
@@ -103,9 +108,23 @@ assume_yes = assume_yes_str == "1"
 json_output = json_output == "1"
 all_agents = all_agents_str == "1"
 home = Path.home()
-skills_dir = Path(os.environ.get("CLAUDE_SKILLS_DIR", str(home / "Claude-Code"))).expanduser()
-link_dir = Path(os.environ.get("CLAUDE_SKILLS_LINK_DIR", str(home / ".claude" / "skills"))).expanduser()
-index_path = Path(os.environ.get("CLAUDE_SKILLS_INDEX_PATH", str(skills_dir / "installed-skills-index.json"))).expanduser()
+claude_skills_dir = Path(os.environ.get("CLAUDE_SKILLS_DIR", str(home / "Claude-Code"))).expanduser()
+claude_link_dir = Path(os.environ.get("CLAUDE_SKILLS_LINK_DIR", str(home / ".claude" / "skills"))).expanduser()
+claude_index_path = Path(os.environ.get("CLAUDE_SKILLS_INDEX_PATH", str(claude_skills_dir / "installed-skills-index.json"))).expanduser()
+
+antigravity_skills_dir = Path(os.environ.get("ANTIGRAVITY_SKILLS_DIR", os.environ.get("SKILL_MANAGER_STORE_DIR", str(home / ".agents" / "skills")))).expanduser()
+antigravity_link_dir = Path(os.environ.get("ANTIGRAVITY_SKILLS_LINK_DIR", os.environ.get("ANTIGRAVITY_SKILLS_DIR", str(home / ".agents" / "skills")))).expanduser()
+antigravity_builtin_dir = Path(os.environ.get("ANTIGRAVITY_BUILTIN_DIR", str(home / ".gemini" / "antigravity-cli" / "builtin" / "skills"))).expanduser()
+antigravity_index_path = Path(os.environ.get("ANTIGRAVITY_SKILLS_INDEX_PATH", os.environ.get("SKILL_MANAGER_INDEX_PATH", str(antigravity_skills_dir / "installed-skills-index.json")))).expanduser()
+
+if selected_agent == "antigravity":
+    skills_dir = antigravity_skills_dir
+    link_dir = antigravity_link_dir
+    index_path = antigravity_index_path
+else:
+    skills_dir = claude_skills_dir
+    link_dir = claude_link_dir
+    index_path = claude_index_path
 
 action_verbs_map = {
     "creating": "create", "building": "build", "generating": "generate", "analyzing": "analyze",
@@ -402,12 +421,29 @@ def derive_capabilities(frontmatter, name, category, keywords):
 
 def scan_entries():
     candidates = {}
-    for root in (link_dir, skills_dir):
+    roots = []
+    if all_agents:
+        roots.append((link_dir, "link"))
+        roots.append((skills_dir, "source"))
+        if claude_link_dir != link_dir: roots.append((claude_link_dir, "claude_link"))
+        if claude_skills_dir != skills_dir: roots.append((claude_skills_dir, "claude_source"))
+        if antigravity_link_dir != link_dir: roots.append((antigravity_link_dir, "antigravity_link"))
+        if antigravity_skills_dir != skills_dir: roots.append((antigravity_skills_dir, "antigravity_source"))
+    elif selected_agent == "antigravity":
+        roots.append((antigravity_link_dir, "link"))
+        if antigravity_skills_dir != antigravity_link_dir:
+            roots.append((antigravity_skills_dir, "source"))
+    else:
+        roots.append((claude_link_dir, "link"))
+        if claude_skills_dir != claude_link_dir:
+            roots.append((claude_skills_dir, "source"))
+
+    for root, root_type in roots:
         if not root.is_dir():
             continue
         try:
             for item in sorted(root.iterdir()):
-                if item.name.startswith("."):
+                if item.name.startswith(".") or item.name in ("bin", "brain", "cache", "log", ".backups"):
                     continue
                 if item.is_dir() and item.name not in candidates:
                     candidates[item.name] = (item, root)
@@ -417,16 +453,24 @@ def scan_entries():
 
 def read_skill_entry(name, item_path, root_dir):
     skill_file = item_path / "SKILL.md"
-    has_link = (link_dir / name).exists()
-    link_path = f"$CLAUDE_SKILLS_LINK_DIR/{name}" if has_link else ""
-    source_path = f"$CLAUDE_SKILLS_DIR/{name}"
+    has_claude_link = (claude_link_dir / name).exists()
+    has_claude_source = (claude_skills_dir / name).exists()
+    has_antigravity_link = (antigravity_link_dir / name).exists()
+    has_antigravity_source = (antigravity_skills_dir / name).exists()
+
+    claude_vis = has_claude_link or (selected_agent == "claude" and has_claude_source)
+    antigravity_vis = has_antigravity_link or has_antigravity_source or (selected_agent == "antigravity" and item_path.exists())
+
+    link_path = f"$ANTIGRAVITY_SKILLS_LINK_DIR/{name}" if (selected_agent == "antigravity" and has_antigravity_link) else (f"$CLAUDE_SKILLS_LINK_DIR/{name}" if has_claude_link else "")
+    source_path = f"$ANTIGRAVITY_SKILLS_DIR/{name}" if selected_agent == "antigravity" else f"$CLAUDE_SKILLS_DIR/{name}"
+
     now_iso = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
     agents_obj = {
         "claude": {
-            "visible": has_link,
-            "path": link_path if has_link else None,
-            "reason": "link present" if has_link else "link missing or broken"
+            "visible": bool(claude_vis),
+            "path": str(claude_link_dir / name) if claude_vis else None,
+            "reason": "link present" if claude_vis else "not installed for claude"
         },
         "codex": {
             "visible": False,
@@ -434,9 +478,9 @@ def read_skill_entry(name, item_path, root_dir):
             "reason": "stub adapter / not installed"
         },
         "antigravity": {
-            "visible": False,
-            "path": None,
-            "reason": "stub adapter / not installed"
+            "visible": bool(antigravity_vis),
+            "path": str(antigravity_link_dir / name) if antigravity_vis else None,
+            "reason": "discovered-in-antigravity-global-skill-root" if antigravity_vis else "not installed for antigravity"
         }
     }
 
@@ -1048,14 +1092,24 @@ def evaluate_trigger_quality(frontmatter, desc, caps, cat):
     }
 
 def doctor_global(index_data):
-    skills = index_data.get("skills", [])
-    scanned_count = len(skills)
-    broken_list = [s for s in skills if s.get("status") != "ok" or s.get("health") == "broken"]
-    missing_list = [s for s in skills if s.get("health") == "missing"]
+    all_skills = index_data.get("skills", [])
+    target_skills = filter_skills_by_agent(all_skills, selected_agent, all_agents)
+    scanned_count = len(target_skills)
+    broken_list = [s for s in target_skills if s.get("status") != "ok" or s.get("health") == "broken"]
+    missing_list = [s for s in target_skills if s.get("health") == "missing"]
     healthy_count = max(0, scanned_count - len(broken_list) - len(missing_list))
 
-    print(f"doctor: scanned {scanned_count} skills")
-    print(f"  healthy: {healthy_count}")
+    if selected_agent == "antigravity":
+        cli_detected = (shutil.which("antigravity") is not None or shutil.which("agy") is not None)
+        skills_detected = antigravity_link_dir.is_dir()
+        env_str = "CLI detected" if cli_detected else ("skills directory detected" if skills_detected else "not detected")
+        print(f"doctor: scanned {scanned_count} skills for agent 'antigravity'")
+        print(f"  environment: {env_str}")
+        print(f"  discovery root: {antigravity_link_dir}")
+        print(f"  healthy: {healthy_count}")
+    else:
+        print(f"doctor: scanned {scanned_count} skills")
+        print(f"  healthy: {healthy_count}")
     if broken_list:
         broken_names = ", ".join(s["name"] for s in broken_list)
         print(f"  broken: {len(broken_list)} ({broken_names})")
@@ -1069,7 +1123,7 @@ def doctor_global(index_data):
         print("  missing: 0")
 
     healthy_scores = []
-    healthy_skills = [s for s in skills if s.get("status") == "ok" and s.get("health") == "ok"]
+    healthy_skills = [s for s in target_skills if s.get("status") == "ok" and s.get("health") == "ok"]
     for s in healthy_skills:
         dir_name = s.get("install_name", s["name"])
         s_file = skills_dir / dir_name / "SKILL.md"
@@ -1509,8 +1563,8 @@ try:
     index = load_index()
 
     if mode == "refresh":
-        if selected_agent != "claude":
-            raise SystemExit(f"not-yet-implemented: see adapters/{selected_agent}/stub-note.md")
+        if selected_agent == "codex":
+            raise SystemExit("not-yet-implemented: see adapters/codex/stub-note.md")
         index = build_index()
         index = apply_registration(index)
         write_index(index)
@@ -1582,8 +1636,8 @@ try:
             print(f"usage.status: {entry.get('usage', {}).get('status', 'unknown')}")
             print("invocation_hint: Ask Claude Code to use the named skill for a matching task. Automatic invocation is not observable by this catalog.")
     elif mode == "doctor":
-        if selected_agent != "claude" and not all_agents:
-            print(f"doctor: agent '{selected_agent}' is a stub adapter (not-yet-implemented). No skills installed.")
+        if selected_agent == "codex" and not all_agents:
+            print("doctor: agent 'codex' is a stub adapter (not-yet-implemented). No skills installed.")
             raise SystemExit(0)
         fresh = build_index()
         if requested_name:
@@ -1591,8 +1645,8 @@ try:
         else:
             doctor_global(fresh)
     elif mode == "fix":
-        if selected_agent != "claude":
-            raise SystemExit(f"not-yet-implemented: see adapters/{selected_agent}/stub-note.md")
+        if selected_agent == "codex":
+            raise SystemExit("not-yet-implemented: see adapters/codex/stub-note.md")
         fresh = build_index()
         if requested_name:
             entry = next((item for item in fresh.get("skills", []) if item["name"] == requested_name or item.get("install_name") == requested_name), None)

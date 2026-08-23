@@ -9,6 +9,10 @@ resolve_agent() {
         echo "$requested" | tr '[:upper:]' '[:lower:]'
         return 0
     fi
+    if [ -n "${SKILL_MANAGER_AGENT:-}" ]; then
+        echo "$SKILL_MANAGER_AGENT" | tr '[:upper:]' '[:lower:]'
+        return 0
+    fi
     if [ -n "${CLAUDE_SKILLS_AGENT:-}" ]; then
         echo "$CLAUDE_SKILLS_AGENT" | tr '[:upper:]' '[:lower:]'
         return 0
