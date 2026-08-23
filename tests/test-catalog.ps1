@@ -93,8 +93,8 @@ try {
     Assert-True ($show.ExitCode -eq 0 -and $show.Output -match 'presentations') 'show should display the description'
     Assert-True ($show.Output -match 'usage.*unknown') 'show should not pretend to know invocation state'
 
-    # V2.0 Schema & Capabilities & Manual Scan Verification
-    Assert-True ($index.schema_version -eq 2) 'schema_version must be 2'
+    # V3.0 Schema & Capabilities & Manual Scan Verification
+    Assert-True ($index.schema_version -eq 3) 'schema_version must be 3'
     $imgEntry = @($index.skills | Where-Object name -eq 'image-skill')[0]
     Assert-True ($null -ne $imgEntry.capabilities -and $imgEntry.capabilities.Count -gt 0) 'capabilities array must exist'
     Assert-True ($null -ne $imgEntry.keywords -and $imgEntry.keywords.Count -gt 0) 'keywords array must exist'
@@ -199,7 +199,7 @@ try {
 
     # 4. Description rewrite cases A, B, C, E
     New-TestSkill (Join-Path $linkRoot 'case-a-skill') 'case-a-skill' 'Use when testing case a description already compliant.'
-    New-TestSkill (Join-Path $linkRoot 'case-b-skill') 'case-b-skill' 'Build and deploy full-stack applications with ease and speed.'
+    New-TestSkill (Join-Path $linkRoot 'case-b-skill') 'case-b-skill' 'Build and deploy full-stack web applications with modern architecture, automated CI/CD pipelines, and high-quality frontend styling.'
     New-TestSkill (Join-Path $linkRoot 'case-c-skill') 'case-c-skill' 'This skill should be used when the user needs to transcribe audio recordings.'
     New-TestSkill (Join-Path $linkRoot 'case-e-skill') 'case-e-skill' 'General purpose helper that performs specialized tasks for workflows.'
 
@@ -220,6 +220,56 @@ try {
     # 5. Doctor verification after fix
     $doctorAfter = Invoke-Catalog @('-Command', 'doctor', '-Name', 'case-b-skill')
     Assert-True ($doctorAfter.Output -match 'Trigger description looks Claude-discoverable') 'fixed skill should be Claude-discoverable'
+
+    # 6. V3.0 Multi-Agent Tests
+    # A. Default agent claude
+    $capsClaude = Invoke-Catalog @('-Command', 'capabilities', '-Agent', 'claude')
+    Assert-True ($capsClaude.Output -match 'Development') 'agent claude should see development category'
+
+    # B. Stub agent codex in capabilities
+    $capsCodex = Invoke-Catalog @('-Command', 'capabilities', '-Agent', 'codex')
+    Assert-True ($capsCodex.Output -match "No visible skills for agent 'codex'") 'agent codex should report 0 visible skills'
+
+    # C. All-agents flag with stub agent
+    $capsAll = Invoke-Catalog @('-Command', 'capabilities', '-Agent', 'codex', '-AllAgents')
+    Assert-True ($capsAll.Output -match 'Development') 'all-agents should see development category'
+
+    # D. CLAUDE_SKILLS_AGENT=antigravity environment variable
+    $oldAgentVar = $env:CLAUDE_SKILLS_AGENT
+    try {
+        $env:CLAUDE_SKILLS_AGENT = 'antigravity'
+        $capsAnti = Invoke-Catalog @('-Command', 'capabilities')
+        Assert-True ($capsAnti.Output -match "No visible skills for agent 'antigravity'") 'env CLAUDE_SKILLS_AGENT=antigravity should report 0 visible skills'
+    } finally {
+        $env:CLAUDE_SKILLS_AGENT = $oldAgentVar
+    }
+
+    # E. Show command displays per-agent visibility
+    $showOut = Invoke-Catalog @('-Command', 'show', '-Name', 'case-b-skill')
+    Assert-True ($showOut.Output -match 'agents\.claude\.visible:\s*True') 'show should output claude visible'
+    Assert-True ($showOut.Output -match 'agents\.codex\.visible:\s*False') 'show should output codex visible false'
+    Assert-True ($showOut.Output -match 'agents\.antigravity\.visible:\s*False') 'show should output antigravity visible false'
+
+    # F. Schema v3 migration from legacy v2 JSON
+    $legacyJson = @'
+{
+  "schema_version": 2,
+  "generated_at": "2026-08-23T00:00:00Z",
+  "skills": [
+    {
+      "name": "legacy-skill",
+      "install_name": "legacy-skill",
+      "description": "Legacy test skill",
+      "status": "ok",
+      "health": "ok"
+    }
+  ]
+}
+'@
+    Set-Content -LiteralPath (Join-Path $sourceRoot 'installed-skills-index.json') -Value $legacyJson -Encoding UTF8
+    $migratedShow = Invoke-Catalog @('-Command', 'show', '-Name', 'legacy-skill')
+    Assert-True ($migratedShow.Output -match 'agents\.claude\.visible:\s*True') 'migrated v2 index should have claude visible'
+    Assert-True ($migratedShow.Output -match 'agents\.codex\.visible:\s*False') 'migrated v2 index should have codex visible'
 
     Write-Output 'PASS: catalog regression tests'
 }

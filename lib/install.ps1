@@ -23,12 +23,14 @@ param(
     [switch]$SkipMemoryUpdate,
     [switch]$SkipCatalogUpdate,
     [string]$ExpectedSha256,
+    [string]$Agent,
     [switch]$RequirePinnedRef,
     [switch]$RequireAuth,
     [switch]$AllowAnonymousFallback
 )
 
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot\..\adapters\_base.ps1"
 $IsWindowsHost = $env:OS -eq 'Windows_NT'
 $TempRoot = $null
 $Mode = $null
@@ -244,6 +246,14 @@ try {
         elseif ($LocalPath) { $Name = Split-Path -Leaf ((Resolve-Path -LiteralPath $LocalPath).Path) }
     }
     Assert-ValidName $Name
+
+    $resolvedAgent = Resolve-AgentName $Agent
+    if (-not (Test-ValidAgentName $resolvedAgent)) {
+        Fail "Unknown agent '$resolvedAgent'. Supported agents: $($global:SupportedAgents -join ', ')"
+    }
+    if ($resolvedAgent -ne 'claude') {
+        Fail "not-yet-implemented: see adapters/$resolvedAgent/stub-note.md"
+    }
 
     $SkillsDir = if ($env:CLAUDE_SKILLS_DIR) { $env:CLAUDE_SKILLS_DIR } else { Join-Path $env:USERPROFILE 'Claude-Code' }
     $LinkBase = if ($env:CLAUDE_SKILLS_LINK_DIR) { $env:CLAUDE_SKILLS_LINK_DIR } else { Join-Path $env:USERPROFILE '.claude\skills' }

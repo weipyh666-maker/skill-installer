@@ -138,11 +138,11 @@ The manager maintains a cache index at `CLAUDE_SKILLS_DIR/installed-skills-index
 
 | Operation | PowerShell | Bash | Purpose |
 |---|---|---|---|
-| Capabilities | `-Command capabilities` | `--capabilities` | Summary grouped by category with broken count |
-| List | `-Command list` | `--list` | Tabular skill listing |
-| Find | `-Command find -Query value [-Limit N]` | `--find value [--limit N]` | Scored bilingual search with compound AND filtering |
-| Show | `-Command show -Name value` | `--show value` | Deep inspection of skill provenance and visibility |
-| Doctor | `-Command doctor [-Name value]` | `--doctor [--name value]` | Global inventory check or single-skill trigger quality diagnosis |
+| Capabilities | `-Command capabilities [-Agent name] [-AllAgents]` | `--capabilities [--agent name] [--all-agents]` | Summary grouped by category with broken count |
+| List | `-Command list [-Agent name] [-AllAgents]` | `--list [--agent name] [--all-agents]` | Tabular skill listing |
+| Find | `-Command find -Query value [-Limit N] [-Agent name] [-AllAgents]` | `--find value [--limit N] [--agent name] [--all-agents]` | Scored bilingual search with compound AND filtering |
+| Show | `-Command show -Name value` | `--show value` | Deep inspection of skill provenance and visibility per agent |
+| Doctor | `-Command doctor [-Name value] [-Agent name] [-AllAgents]` | `--doctor [--name value] [--agent name] [--all-agents]` | Global inventory check or single-skill trigger quality diagnosis |
 | Fix | `-Command fix [-Name value] [-DryRun] [-Yes]` | `--fix [--name value] [--dry-run] [--yes]` | Rewrite frontmatter triggers and auto-derive capabilities & category |
 | Refresh | `-Command refresh` | `--refresh` | Rescan filesystem and update catalog index |
 
@@ -207,6 +207,7 @@ bash lib/catalog.sh --fix --yes
 | -Ref value | --ref value | Branch, tag, or commit |
 | -LocalPath path | --local path | Local source |
 | -Name value | --name value | Installed name |
+| -Agent claude\|codex\|antigravity | --agent claude\|codex\|antigravity | Target AI agent harness (default: claude) |
 | -LinkOnly | --link-only | Recreate a link from an existing source |
 | -Force | --force | Replace after backing up |
 | -DryRun | --dry-run | Validate without changing state |
@@ -222,6 +223,7 @@ bash lib/catalog.sh --fix --yes
 
 | Variable | Default | Purpose |
 |---|---|---|
+| CLAUDE_SKILLS_AGENT | claude | Default AI agent harness (`claude`, `codex`, `antigravity`) |
 | CLAUDE_SKILLS_DIR | ~/Claude-Code | Source directory |
 | CLAUDE_SKILLS_LINK_DIR | ~/.claude/skills | Claude Code link directory |
 | CLAUDE_SKILLS_INDEX_PATH | CLAUDE_SKILLS_DIR/installed-skills-index.json | Optional catalog index path |
@@ -240,10 +242,15 @@ skill-manager/
 ├── CHANGELOG.md
 ├── LICENSE
 ├── .gitattributes
-├── core/
-│   └── .gitkeep
 ├── adapters/
-│   └── .gitkeep
+│   ├── _base.ps1 / _base.sh
+│   ├── claude/ (paths, detect)
+│   ├── codex/ (paths, stub-note.md)
+│   └── antigravity/ (paths, stub-note.md)
+├── core/
+│   ├── scanner.ps1 / scanner.sh
+│   ├── search.ps1 / search.sh
+│   └── doctor.ps1 / doctor.sh
 ├── lib/
 │   ├── install.ps1
 │   ├── install.sh
@@ -277,6 +284,8 @@ bash -n lib/catalog.sh
 The test suite uses temporary directories and never writes to a user's Claude Code directory.
 
 ## Release notes
+
+Version 3.0.0 introduces modular multi-agent adapters (`claude`, `codex`, `antigravity`), CLI `--agent` / `-Agent` options and `CLAUDE_SKILLS_AGENT` environment support, Catalog Schema v3 with per-agent visibility objects and automatic v1/v2 migration, core subsystem breakdown (`scanner`, `search`, `doctor`), and multi-agent filtering across catalog commands.
 
 Version 2.2.0 adds `skill fix` (`--fix` / `-Command fix`) for automated and interactive batch frontmatter trigger repair, 5-case description normalization, automated `capabilities` and `category` derivation, symlink protection, automated backups, and post-fix doctor verification.
 

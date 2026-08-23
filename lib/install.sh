@@ -25,7 +25,9 @@ REQUIRE_AUTH=0
 ALLOW_ANON_SET=0
 REQUIRE_AUTH_SET=0
 TEMP_ROOT=''
+AGENT=''
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../adapters/_base.sh"
 
 usage() {
     sed -n '1,35p' "$0"
@@ -36,6 +38,7 @@ Options:
   --ref branch|tag|sha       Git ref; pin this for reproducible installs
   --local PATH               Local skill directory
   --name NAME                Installed skill name
+  --agent AGENT              Target agent (claude|codex|antigravity, default: claude)
   --link-only                Recreate a link from an existing source
   --force                    Replace an existing install after backing it up
   --dry-run                  Validate and print the plan without changing files
@@ -206,6 +209,7 @@ while [[ $# -gt 0 ]]; do
         --ref)               [[ $# -ge 2 ]] || fail '--ref needs a value'; REF="$2"; shift 2 ;;
         --local)             [[ $# -ge 2 ]] || fail '--local needs a directory'; LOCAL_PATH="$2"; shift 2 ;;
         --name)              [[ $# -ge 2 ]] || fail '--name needs a value'; NAME="$2"; shift 2 ;;
+        --agent)             [[ $# -ge 2 ]] || fail '--agent needs a value'; AGENT="$2"; shift 2 ;;
         --link-only)         LINK_ONLY=1; shift ;;
         --force)             FORCE=1; shift ;;
         --dry-run)           DRY_RUN=1; shift ;;
@@ -247,6 +251,13 @@ if [[ -z "$NAME" ]]; then
     if [[ -n "$REPO" ]]; then NAME="${REPO##*/}"; else NAME="$(basename "$(canonical_path "$LOCAL_PATH")")"; fi
 fi
 assert_safe_name "$NAME"
+
+AGENT="$(resolve_agent "$AGENT")"
+validate_agent "$AGENT" || exit 1
+if [[ "$AGENT" != "claude" ]]; then
+    echo "not-yet-implemented: see adapters/$AGENT/stub-note.md" >&2
+    exit 1
+fi
 
 SKILLS_DIR="${CLAUDE_SKILLS_DIR:-$HOME/Claude-Code}"
 LINK_BASE="${CLAUDE_SKILLS_LINK_DIR:-$HOME/.claude/skills}"

@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.0.0] — 2026-08-23
+
+### Added
+- Modular multi-agent architecture with dedicated `adapters/` (`_base`, `claude`, `codex`, `antigravity`) and `core/` subsystems (`scanner`, `search`, `doctor`).
+- Added `--agent` CLI option (`--agent` / `-Agent`) and `CLAUDE_SKILLS_AGENT` environment variable to target specific AI agent harnesses (`claude`, `codex`, `antigravity`) with `claude` as default.
+- Added stub adapters for OpenAI Codex CLI and Antigravity CLI with informative `not-yet-implemented` messaging pointing to `adapters/<agent>/stub-note.md`.
+- Upgraded catalog to `schema_version: 3` featuring top-level `default_agent: "claude"` and per-agent visibility objects (`visible`, `path`, `reason`).
+- Automatic backward-compatible migration from Schema v1/v2 to Schema v3.
+- Added agent-aware filtering across `capabilities`, `list`, `find`, and `doctor`, plus `--all-agents` / `-AllAgents` flag for full catalog inspection.
+- Added 13th trigger condition to `SKILL.md` frontmatter for multi-agent skill catalog management.
+- Added regression tests in `tests/test-install.*` and `tests/test-catalog.*` verifying `--agent claude` backward compatibility, Codex/Antigravity stub responses, `CLAUDE_SKILLS_AGENT` environment override, Schema v3 migration, and agent visibility filtering.
+
 ## [2.2.0] — 2026-08-23
 
 ### Added

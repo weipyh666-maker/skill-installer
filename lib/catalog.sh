@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# catalog.sh — list, search, inspect, and validate installed Claude Code skills
+# catalog.sh — list, search, inspect, and validate installed skills across agents
 
 set -euo pipefail
 
@@ -16,22 +16,28 @@ REGISTER_SOURCE=''
 REGISTER_INSTALLED_AT=''
 REGISTER_COMMIT=''
 REGISTER_SHA256=''
+AGENT="${CLAUDE_SKILLS_AGENT:-claude}"
+ALL_AGENTS=0
 
 usage() {
     cat <<'USAGE'
 Usage:
-  catalog.sh --capabilities
-  catalog.sh --list
-  catalog.sh --refresh
-  catalog.sh --find QUERY [--limit N]
+  catalog.sh --capabilities [--agent AGENT] [--all-agents]
+  catalog.sh --list [--agent AGENT] [--all-agents]
+  catalog.sh --refresh [--agent AGENT]
+  catalog.sh --find QUERY [--limit N] [--agent AGENT] [--all-agents]
   catalog.sh --show NAME
-  catalog.sh --doctor [--name NAME]
-  catalog.sh --fix [--name NAME] [--dry-run] [--yes]
+  catalog.sh --doctor [--name NAME] [--agent AGENT]
+  catalog.sh --fix [--name NAME] [--dry-run] [--yes] [--agent AGENT]
   catalog.sh --json --list
 
+Supported agents: claude (default), codex, antigravity
 Catalog commands require Python 3. Installation itself does not.
 USAGE
 }
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../adapters/_base.sh"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -46,6 +52,8 @@ while [[ $# -gt 0 ]]; do
         -y|--yes)     ASSUME_YES=1; shift ;;
         --name)       [[ $# -ge 2 ]] || { echo '--name needs a value' >&2; exit 1; }; NAME="$2"; shift 2 ;;
         --limit)      [[ $# -ge 2 ]] || { echo '--limit needs a number' >&2; exit 1; }; LIMIT="$2"; shift 2 ;;
+        --agent)      [[ $# -ge 2 ]] || { echo '--agent needs a value' >&2; exit 1; }; AGENT="$2"; shift 2 ;;
+        --all-agents) ALL_AGENTS=1; shift ;;
         --json)       JSON_OUTPUT=1; shift ;;
         --register-name) [[ $# -ge 2 ]] || { echo '--register-name needs a value' >&2; exit 1; }; REGISTER_NAME="$2"; shift 2 ;;
         --register-source) [[ $# -ge 2 ]] || { echo '--register-source needs a value' >&2; exit 1; }; REGISTER_SOURCE="$2"; shift 2 ;;
@@ -57,6 +65,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+AGENT="$(resolve_agent "$AGENT")"
+validate_agent "$AGENT" || exit 1
+
 PYTHON_BIN=''
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys' >/dev/null 2>&1; then
     PYTHON_BIN='python3'
@@ -67,7 +78,7 @@ else
     exit 1
 fi
 
-"$PYTHON_BIN" - "$MODE" "$QUERY" "$NAME" "$LIMIT" "$DRY_RUN" "$ASSUME_YES" "$JSON_OUTPUT" "$REGISTER_NAME" "$REGISTER_SOURCE" "$REGISTER_INSTALLED_AT" "$REGISTER_COMMIT" "$REGISTER_SHA256" <<'PY'
+"$PYTHON_BIN" - "$MODE" "$QUERY" "$NAME" "$LIMIT" "$DRY_RUN" "$ASSUME_YES" "$JSON_OUTPUT" "$REGISTER_NAME" "$REGISTER_SOURCE" "$REGISTER_INSTALLED_AT" "$REGISTER_COMMIT" "$REGISTER_SHA256" "$AGENT" "$ALL_AGENTS" <<'PY'
 import datetime as dt
 import json
 import os
@@ -81,11 +92,12 @@ for stream in (sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure"):
         stream.reconfigure(encoding="utf-8", errors="replace")
 
-mode, query, requested_name, limit_str, dry_run_str, assume_yes_str, json_output, register_name, register_source, register_installed_at, register_commit, register_sha256 = sys.argv[1:13]
+mode, query, requested_name, limit_str, dry_run_str, assume_yes_str, json_output, register_name, register_source, register_installed_at, register_commit, register_sha256, selected_agent, all_agents_str = sys.argv[1:15]
 limit = int(limit_str) if limit_str.isdigit() else 10
 dry_run = dry_run_str == "1"
 assume_yes = assume_yes_str == "1"
 json_output = json_output == "1"
+all_agents = all_agents_str == "1"
 home = Path.home()
 skills_dir = Path(os.environ.get("CLAUDE_SKILLS_DIR", str(home / "Claude-Code"))).expanduser()
 link_dir = Path(os.environ.get("CLAUDE_SKILLS_LINK_DIR", str(home / ".claude" / "skills"))).expanduser()
@@ -124,47 +136,54 @@ action_verbs_map = {
     "operate": "operate", "provide": "provide", "handle": "handle", "apply": "apply",
     "modify": "modify", "debug": "debug", "evaluate": "evaluate", "optimize": "optimize",
     "refactor": "refactor", "audit": "audit", "draft": "draft", "publish": "publish",
-    "drive": "drive", "automate": "automate", "learn": "learn", "scan": "scan",
+    "drive": "drive", "automate": "automate", "learn": "learn", "scan": "scan"
 }
 
-aliases = {
-    "图片": ["image", "vision", "photo", "screenshot", "ocr"],
-    "图像": ["image", "vision", "photo", "screenshot", "ocr"],
-    "照片": ["image", "vision", "photo", "screenshot"],
-    "截图": ["screenshot", "image", "vision"],
-    "识别": ["recognition", "recognize", "ocr", "understanding", "detect", "identify"],
-    "理解": ["understanding", "recognition", "recognize", "vision"],
-    "ppt": ["presentation", "slides", "deck", "pptx"],
-    "演示": ["presentation", "slides", "deck", "pptx"],
-    "幻灯片": ["presentation", "slides", "deck", "pptx"],
-    "文档": ["document", "docs", "docx", "pdf"],
-    "pdf": ["pdf", "document", "docs"],
-    "word": ["docx", "document", "word"],
-    "表格": ["spreadsheet", "xlsx", "excel", "csv"],
-    "excel": ["xlsx", "spreadsheet", "excel", "csv"],
-    "网页": ["web", "website", "browser", "frontend", "ui", "page"],
-    "前端": ["frontend", "ui", "web", "interface", "design"],
-    "界面": ["ui", "interface", "frontend", "gui"],
-    "ui": ["ui", "interface", "frontend", "gui", "design"],
-    "设计": ["design", "create", "craft", "build"],
-    "做": ["design", "create", "build", "make", "develop"],
-    "制作": ["create", "build", "design", "make"],
-    "代码": ["code", "coding", "development", "programming"],
-    "开发": ["develop", "development", "code", "coding", "build"],
-    "编程": ["programming", "code", "coding", "develop"],
-    "调试": ["debug", "debugging", "diagnosis", "bug"],
-    "测试": ["test", "testing", "qa", "e2e"],
-    "诊断": ["diagnose", "diagnosis", "debug", "health"],
-    "搜索": ["search", "research", "query", "find"],
-    "调研": ["research", "survey", "search", "investigate"],
-    "技能": ["skill", "agent", "workflow"],
-}
-
-def query_terms(value):
-    terms = [part.lower() for part in re.split(r"\s+", value.lower()) if part]
+def alias_terms(text):
+    aliases = {
+        "图片": ["image", "vision", "photo", "screenshot", "ocr"],
+        "图像": ["image", "vision", "photo", "screenshot", "ocr"],
+        "照片": ["image", "vision", "photo", "screenshot"],
+        "截图": ["screenshot", "image", "vision"],
+        "识别": ["recognition", "recognize", "ocr", "understanding", "detect", "identify"],
+        "理解": ["understanding", "recognition", "recognize", "vision"],
+        "ppt": ["presentation", "slides", "deck", "pptx"],
+        "演示": ["presentation", "slides", "deck", "pptx"],
+        "幻灯片": ["presentation", "slides", "deck", "pptx"],
+        "文档": ["document", "docs", "docx", "pdf"],
+        "pdf": ["pdf", "document", "docs"],
+        "word": ["docx", "document", "word"],
+        "表格": ["spreadsheet", "xlsx", "excel", "csv"],
+        "excel": ["xlsx", "spreadsheet", "excel", "csv"],
+        "网页": ["web", "website", "browser", "frontend", "ui", "page"],
+        "前端": ["frontend", "ui", "web", "interface", "design"],
+        "界面": ["ui", "interface", "frontend", "gui"],
+        "ui": ["ui", "interface", "frontend", "gui", "design"],
+        "设计": ["design", "create", "craft", "build"],
+        "做": ["design", "create", "build", "make", "develop"],
+        "制作": ["create", "build", "design", "make"],
+        "代码": ["code", "coding", "development", "programming"],
+        "开发": ["develop", "development", "code", "coding", "build"],
+        "编程": ["programming", "code", "coding", "develop"],
+        "调试": ["debug", "debugging", "diagnosis", "bug"],
+        "测试": ["test", "testing", "qa", "e2e"],
+        "诊断": ["diagnose", "diagnosis", "debug", "health"],
+        "搜索": ["search", "research", "query", "find"],
+        "调研": ["research", "survey", "search", "investigate"],
+    }
+    expanded = []
     for key, values in aliases.items():
-        if key in value.lower():
-            terms.extend(values)
+        if key in text:
+            expanded.extend(values)
+    return expanded
+
+def query_terms(raw_query):
+    text = raw_query.lower()
+    matches = re.findall(r"[a-z0-9][a-z0-9_-]{1,}|[\u3400-\u9fff]{2,}", text)
+    terms = list(matches)
+    for al in alias_terms(text):
+        if al not in terms:
+            terms.append(al)
     return list(dict.fromkeys(terms))
 
 def extract_frontmatter_field(frontmatter, field_name):
@@ -287,6 +306,24 @@ def read_skill_entry(name, item_path, root_dir):
     source_path = f"$CLAUDE_SKILLS_DIR/{name}"
     now_iso = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
+    agents_obj = {
+        "claude": {
+            "visible": has_link,
+            "path": link_path if has_link else None,
+            "reason": "link present" if has_link else "link missing or broken"
+        },
+        "codex": {
+            "visible": False,
+            "path": None,
+            "reason": "stub adapter / not installed"
+        },
+        "antigravity": {
+            "visible": False,
+            "path": None,
+            "reason": "stub adapter / not installed"
+        }
+    }
+
     if not skill_file.is_file():
         return {
             "name": name,
@@ -306,7 +343,7 @@ def read_skill_entry(name, item_path, root_dir):
             "status": "broken",
             "health": "broken",
             "usage": {"status": "unknown", "last_seen": None, "invocation_count": None},
-            "agents": {"claude": {"visible": has_link, "link_path": link_path}},
+            "agents": agents_obj,
         }
 
     try:
@@ -346,7 +383,7 @@ def read_skill_entry(name, item_path, root_dir):
         "status": status,
         "health": health,
         "usage": {"status": "unknown", "last_seen": None, "invocation_count": None},
-        "agents": {"claude": {"visible": has_link, "link_path": link_path}},
+        "agents": agents_obj,
     }
 
 def read_old_index():
@@ -409,9 +446,11 @@ def build_index():
 
     if old_index and isinstance(old_index.get("skills"), list):
         for old_skill in old_index["skills"]:
+            if not isinstance(old_skill, dict):
+                continue
             old_name = old_skill.get("name")
             old_inst = old_skill.get("install_name")
-            if old_name not in scanned_names and (not old_inst or old_inst not in scanned_names):
+            if old_name and (old_name not in scanned_names) and (old_inst not in scanned_names):
                 missing_entry = {
                     "name": old_name,
                     "install_name": old_inst or old_name,
@@ -430,14 +469,19 @@ def build_index():
                     "status": "broken",
                     "health": "missing",
                     "usage": old_skill.get("usage", {"status": "unknown", "last_seen": None, "invocation_count": None}),
-                    "agents": {"claude": {"visible": False, "link_path": ""}},
+                    "agents": {
+                        "claude": {"visible": False, "path": None, "reason": "missing"},
+                        "codex": {"visible": False, "path": None, "reason": "stub adapter / not installed"},
+                        "antigravity": {"visible": False, "path": None, "reason": "stub adapter / not installed"}
+                    },
                 }
                 entries.append(missing_entry)
 
     entries.sort(key=lambda item: item["name"].lower())
     return {
-        "schema_version": 2,
-        "generated_at": now_iso,
+        "schema_version": 3,
+        "default_agent": "claude",
+        "updated_at": now_iso,
         "skills": entries,
     }
 
@@ -454,25 +498,100 @@ def apply_registration(index):
         if entry["name"] == register_name or entry.get("install_name") == register_name:
             if register_source:
                 entry["source"] = register_source
-                if register_source.startswith("github:"):
-                    entry["provenance"] = "installer"
+                entry["provenance"] = "installer" if register_source.startswith("github:") else "local"
             if register_installed_at:
                 entry["installed_at"] = register_installed_at
-                if not entry.get("discovered_at"):
-                    entry["discovered_at"] = register_installed_at
+                entry["discovered_at"] = register_installed_at
             if register_commit:
                 entry["commit"] = register_commit
             if register_sha256:
                 entry["sha256"] = register_sha256
+            entry["status"] = "ok"
+            entry["health"] = "ok"
     return index
+
+def migrate_index(data):
+    if not isinstance(data, dict):
+        return {"schema_version": 3, "default_agent": "claude", "updated_at": None, "skills": []}
+    skills = data.get("skills", [])
+    if not isinstance(skills, list):
+        skills = []
+    migrated_skills = []
+    for entry in skills:
+        if not isinstance(entry, dict):
+            continue
+        e = dict(entry)
+        if "category" not in e or not e["category"]:
+            kws = derive_keywords(e.get("name", ""), e.get("description", ""))
+            e["category"] = infer_category("", e.get("name", ""), e.get("description", ""), kws)
+        if "capabilities" not in e or not isinstance(e["capabilities"], list):
+            kws = derive_keywords(e.get("name", ""), e.get("description", ""))
+            e["capabilities"] = derive_capabilities("", e.get("name", ""), e.get("category", "other"), kws)
+        if "status" not in e:
+            e["status"] = "ok"
+        if "health" not in e:
+            e["health"] = "ok"
+
+        raw_agents = e.get("agents")
+        if not isinstance(raw_agents, dict):
+            raw_agents = {}
+        
+        claude_obj = raw_agents.get("claude")
+        if not isinstance(claude_obj, dict):
+            claude_vis = (e.get("status") == "ok" and e.get("health") == "ok")
+            claude_path = e.get("link_path") or e.get("source_path")
+            raw_agents["claude"] = {
+                "visible": claude_vis,
+                "path": claude_path if claude_vis else None,
+                "reason": "link present" if claude_vis else "link missing or broken"
+            }
+        else:
+            if "visible" not in claude_obj:
+                claude_obj["visible"] = (e.get("status") == "ok" and e.get("health") == "ok")
+            if "path" not in claude_obj:
+                claude_obj["path"] = e.get("link_path") or e.get("source_path")
+            if "reason" not in claude_obj:
+                claude_obj["reason"] = "link present" if claude_obj["visible"] else "link missing or broken"
+
+        if "codex" not in raw_agents or not isinstance(raw_agents["codex"], dict):
+            raw_agents["codex"] = {
+                "visible": False,
+                "path": None,
+                "reason": "stub adapter / not installed"
+            }
+        if "antigravity" not in raw_agents or not isinstance(raw_agents["antigravity"], dict):
+            raw_agents["antigravity"] = {
+                "visible": False,
+                "path": None,
+                "reason": "stub adapter / not installed"
+            }
+        e["agents"] = raw_agents
+        migrated_skills.append(e)
+
+    return {
+        "schema_version": 3,
+        "default_agent": data.get("default_agent", "claude"),
+        "updated_at": data.get("updated_at", data.get("generated_at")),
+        "skills": migrated_skills
+    }
 
 def load_index():
     old = read_old_index()
-    if old is not None and old.get("schema_version", 1) >= 2:
+    if old is not None and old.get("schema_version", 1) >= 3:
         return old
+    if old is not None:
+        return migrate_index(old)
     index = build_index()
     write_index(index)
     return index
+
+def filter_skills_by_agent(skills, agent_name, all_ag=False):
+    if all_ag:
+        return skills
+    return [
+        s for s in skills
+        if isinstance(s, dict) and s.get("agents", {}).get(agent_name, {}).get("visible") is True
+    ]
 
 def score(entry, search_query):
     terms = query_terms(search_query)
@@ -484,7 +603,6 @@ def score(entry, search_query):
     cat_lower = entry.get("category", "").lower()
     search_text = f"{name_lower} {install_lower} {desc_lower} {' '.join(kw_list)} {' '.join(cap_list)} {cat_lower}".lower()
 
-    # Compound AND filters
     image_words = ("image", "vision", "photo", "screenshot", "picture", "图片", "图像", "照片", "截图")
     recog_words = ("recogni", "ocr", "detect", "identif", "understand", "classif", "识别", "理解", "分类")
     query_lower = search_query.lower()
@@ -518,65 +636,68 @@ def score(entry, search_query):
             total += 12
         elif term in name_lower:
             total += 8
-        if term in desc_lower:
-            total += 3
-        if any(term in kw for kw in kw_list):
-            total += 3
+        if install_lower and term in install_lower:
+            total += 6
+        if term in cat_lower:
+            total += 4
         if any(term in cap for cap in cap_list):
             total += 3
-        if cat_lower == term or term in cat_lower:
-            total += 5
+        if term in desc_lower:
+            total += 2
+        if any(term in kw for kw in kw_list):
+            total += 1
     return total
 
-def print_entries(entries):
+def print_entries(skills):
     if json_output:
-        print(json.dumps(entries, ensure_ascii=False, indent=2))
+        print(json.dumps(skills, ensure_ascii=False, indent=2))
         return
-    print(f"Skills: {len(entries)}")
-    for entry in sorted(entries, key=lambda item: item["name"].lower()):
-        description = entry["description"]
-        if len(description) > 78:
-            description = description[:75] + "..."
-        display_name = entry["name"]
-        if entry.get("install_name") and entry["install_name"] != entry["name"]:
-            display_name += f" (install: {entry['install_name']})"
-        print(f"{display_name:<38} [{entry['status']:<7}] {description}")
+    print(f"Skills: {len(skills)}")
+    for entry in skills:
+        name = entry["name"]
+        status = entry.get("status", "unknown")
+        desc = entry.get("description", "")
+        if len(desc) > 80:
+            desc = desc[:77] + "..."
+        print(f"{name:<38} [{status:<7}] {desc}")
 
-def print_capabilities(index_data):
-    if json_output:
-        print(json.dumps(index_data, ensure_ascii=False, indent=2))
-        return
-    skills = index_data.get("skills", [])
-    broken = [s for s in skills if s.get("status") != "ok" or s.get("health") in ("broken", "missing")]
-    ok_skills = [s for s in skills if s not in broken]
-
-    total = len(skills)
-    broken_count = len(broken)
-
-    if broken_count > 0:
-        print(f"Your Agent currently has {total} Skills ({broken_count} broken)\n")
-    else:
-        print(f"Your Agent currently has {total} Skills\n")
-
+def print_capabilities(index_data, target_skills=None):
+    skills = target_skills if target_skills is not None else index_data.get("skills", [])
     categories = [
-        ("Documents", "documents"),
-        ("Development", "development"),
-        ("Browser", "browser"),
-        ("Research", "research"),
-        ("Data", "data"),
-        ("Media", "media"),
-        ("Other", "other"),
+        ("documents", "Documents"),
+        ("development", "Development"),
+        ("media", "Media"),
+        ("data", "Data"),
+        ("browser", "Browser"),
+        ("research", "Research"),
+        ("other", "Other"),
     ]
 
-    for display_cat, cat_key in categories:
-        group = [s for s in ok_skills if s.get("category") == cat_key]
+    by_cat = {c[0]: [] for c in categories}
+    broken = []
+
+    for s in skills:
+        if s.get("status") != "ok" or s.get("health") != "ok":
+            broken.append(s)
+        else:
+            cat = s.get("category", "other").lower()
+            if cat not in by_cat:
+                cat = "other"
+            by_cat[cat].append(s)
+
+    total_count = len(skills)
+    broken_count = len(broken)
+    print(f"Your Agent currently has {total_count} Skills ({broken_count} broken)\n")
+
+    for cat_key, cat_name in categories:
+        group = by_cat[cat_key]
         if group:
-            print(f"{display_cat} ({len(group)})")
+            print(f"{cat_name} ({len(group)})")
             for s in sorted(group, key=lambda x: x["name"].lower()):
                 desc = s.get("description", "")
                 if len(desc) > 60:
                     desc = desc[:57] + "..."
-                if not desc:
+                elif not desc:
                     desc = "(no description)"
                 print(f"  {s['name']:<20} {desc}")
             print()
@@ -650,7 +771,6 @@ def doctor_single(skill_name, index_data):
     suggestions = []
 
     print(f"{skill_name}\n")
-
     print("Installation")
     if source_exists:
         print(f"  ✓ Source at $CLAUDE_SKILLS_DIR/{dir_name}")
@@ -662,17 +782,20 @@ def doctor_single(skill_name, index_data):
     else:
         print(f"  ✗ Link missing at $CLAUDE_SKILLS_LINK_DIR/{dir_name}")
 
-    if source_file_exists and link_file_exists:
-        src_hash = hashlib.sha256(source_file.read_bytes()).hexdigest()
-        lnk_hash = hashlib.sha256(link_file.read_bytes()).hexdigest()
-        if src_hash == lnk_hash:
-            print("  ✓ SKILL.md hashes match")
-        else:
-            print("  ✗ SKILL.md hashes differ between source and link")
-    elif source_file_exists or link_file_exists:
-        print("  ⚠ Single copy found (no link hash comparison)")
+    if source_exists and link_exists:
+        if source_file_exists and link_file_exists:
+            try:
+                s_hash = hashlib.sha256(source_file.read_bytes()).hexdigest()
+                l_hash = hashlib.sha256(link_file.read_bytes()).hexdigest()
+                if s_hash == l_hash:
+                    print("  ✓ Source and link SKILL.md match")
+                else:
+                    print("  ✗ Source and link SKILL.md differ (out of sync)")
+                    suggestions.append(f"Re-link with: bash lib/install.sh --local \"$CLAUDE_SKILLS_DIR/{dir_name}\" --link-only --force")
+            except Exception:
+                pass
     else:
-        print("  ✗ SKILL.md missing")
+        print("  ⚠ Single copy found (no link hash comparison)")
     print()
 
     print("Structure")
@@ -680,16 +803,20 @@ def doctor_single(skill_name, index_data):
         print("  ✓ SKILL.md present")
     else:
         print("  ✗ SKILL.md missing")
+        suggestions.append(f"Create $CLAUDE_SKILLS_DIR/{dir_name}/SKILL.md")
 
     if frontmatter_match:
         print("  ✓ YAML frontmatter valid")
     else:
-        print("  ✗ YAML frontmatter missing or invalid")
+        print("  ✗ YAML frontmatter missing or unparseable")
 
     if declared_name:
-        print(f"  ✓ name = {declared_name}")
+        if declared_name == skill_name or (entry and declared_name == entry.get("name")):
+            print(f"  ✓ name = {declared_name}")
+        else:
+            print(f"  ⚠ name ({declared_name}) differs from directory name ({skill_name})")
     else:
-        print("  ✗ name field missing in frontmatter")
+        print("  ✗ name missing in frontmatter")
 
     if declared_desc:
         print("  ✓ description present")
@@ -701,51 +828,50 @@ def doctor_single(skill_name, index_data):
     if link_exists:
         print("  ✓ Claude link path visible")
     else:
-        print("  ✗ Claude link path not visible")
+        print("  ✗ Not visible in Claude link path")
+        suggestions.append(f"Create symlink: ln -s \"$CLAUDE_SKILLS_DIR/{dir_name}\" \"$CLAUDE_SKILLS_LINK_DIR/{dir_name}\"")
 
-    if raw_content:
+    if (source_file_exists and os.access(source_file, os.R_OK)) or (link_file_exists and os.access(link_file, os.R_OK)):
         print("  ✓ File readable")
     else:
-        print("  ✗ File unreadable or empty")
+        print("  ✗ File not readable (permission issue)")
     print()
 
     print("Trigger quality")
     trigger_warnings = 0
-    if declared_desc:
-        words = declared_desc.split()
-        if len(declared_desc) < 20:
-            print("  ⚠ Description too short (< 20 characters)")
-            suggestions.append("Expand description to at least 20 characters explaining what the skill does and when to use it")
-            trigger_warnings += 1
-        else:
-            print(f"  ✓ Description has {len(words)} words")
-
-        desc_lower = declared_desc.lower()
-        if desc_lower.startswith("use when"):
-            print('  ✓ Description starts with explicit trigger phrase ("Use when...")')
-        elif any(w in desc_lower for w in ("when", "当用户", "当", "用于")):
-            print('  ✓ Description contains trigger phrase ("when")')
-        else:
-            print('  ⚠ Description doesn\'t start with "Use when..." — Claude\'s auto-discovery benefits from explicit trigger phrases')
-            suggestions.append('Start description with "Use when the user wants to..." for better auto-discovery')
-            trigger_warnings += 1
-
-        action_words = ("use", "create", "analyze", "build", "check", "inspect", "run", "extract", "convert", "manage", "format", "test", "search", "query", "deploy", "fix", "scaffold", "design", "write", "edit", "review", "translate", "summarize", "crawl", "scrape", "monitor", "转换", "提取", "创建", "分析", "构建", "检查", "运行", "调试", "搜索", "编写", "审查", "设计", "做")
-        if any(act in desc_lower for act in action_words):
-            pass
-        else:
-            print("  ⚠ Description lacks clear action verbs (use, create, analyze, build, inspect, convert...)")
-            suggestions.append("Include specific action verbs (e.g. create, convert, analyze) in the description")
-            trigger_warnings += 1
+    desc_words = declared_desc.split() if declared_desc else []
+    desc_len = len(desc_words)
+    if desc_len >= 20:
+        print(f"  ✓ Description has {desc_len} words")
     else:
-        print("  ✗ No description found to assess trigger quality")
+        print(f"  ⚠ Description too short ({desc_len} words, recommend ≥ 20)")
+        suggestions.append("Expand description to at least 20 words describing when to use this skill")
+        trigger_warnings += 1
+
+    action_words = ('use', 'create', 'analyze', 'build', 'check', 'inspect', 'run', 'extract', 'convert', 'manage', 'format', 'test', 'search', 'query', 'deploy', 'fix', 'scaffold', 'design', 'write', 'edit', 'review', 'translate', 'summarize', 'crawl', 'scrape', 'monitor', '转换', '提取', '创建', '分析', '构建', '检查', '运行', '调试', '搜索', '编写', '审查', '设计', '做')
+    desc_lower = declared_desc.lower() if declared_desc else ""
+    if any(act in desc_lower for act in action_words):
+        print("  ✓ Description contains action verbs")
+    else:
+        print("  ⚠ Description lacks clear action verbs")
+        suggestions.append("Add action verbs (e.g. create, analyze, convert, manage) to description")
+        trigger_warnings += 1
+
+    if declared_desc and declared_desc.strip().lower().startswith("use when"):
+        print('  ✓ Description starts with explicit trigger phrase ("Use when...")')
+    elif declared_desc and ("when" in declared_desc.lower() or "whenever" in declared_desc.lower()):
+        print('  ✓ Description contains trigger phrase ("when")')
+    else:
+        print('  ⚠ Description lacks explicit trigger phrase ("Use when...")')
+        suggestions.append('Start description with "Use when the user wants to..."')
         trigger_warnings += 1
 
     if declared_caps:
         print(f"  ✓ Capabilities declared: {declared_caps}")
     else:
-        print("  ⚠ No explicit capabilities tags in frontmatter — auto-derived only")
-        suggestions.append('Add "capabilities:" to SKILL.md frontmatter for explicit tagging')
+        inferred_caps = ", ".join(entry.get("capabilities", [])) if entry else "none"
+        print(f"  ⚠ No explicit capabilities tags in frontmatter — auto-derived only ({inferred_caps})")
+        suggestions.append(f'Add "capabilities: [{inferred_caps}]" to SKILL.md frontmatter')
         trigger_warnings += 1
 
     inferred_cat = entry.get("category", "other") if entry else "other"
@@ -859,150 +985,195 @@ def get_top_capabilities(frontmatter, name, description, category):
     sorted_words = sorted(counts.keys(), key=lambda k: counts[k], reverse=True)
     selected = []
     for k in sorted_words:
-        if len(selected) < 5:
+        if k not in selected:
             selected.append(k)
+        if len(selected) >= 5:
+            break
     if not selected:
-        selected.append(name)
-        if category and category != "other":
-            selected.append(category)
+        selected = [name, category]
     return selected
 
-def build_fixed_frontmatter(raw_content, name, new_desc, new_caps, new_cat):
-    m = re.search(r"(?ms)^---\s*\r?\n(.*?)\r?\n---(?:\s*\r?\n|$)", raw_content)
-    old_frontmatter = m.group(1) if m else ""
-    body = raw_content[m.end():] if m else raw_content
-
-    lines = ["---", f"name: {name}", f"description: {new_desc}", "capabilities:"]
-    for cap in new_caps:
-        lines.append(f"  - {cap}")
-    lines.append(f"category: {new_cat}")
-
-    known_fields = {"name", "description", "capabilities", "category"}
-    in_skipped_block = False
-    for line in old_frontmatter.splitlines():
+def build_fixed_frontmatter(original_frontmatter, new_desc, new_caps, new_cat):
+    lines = original_frontmatter.splitlines()
+    desc_line_indices = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
         trimmed = line.strip()
-        if not trimmed:
+        m_scalar = re.match(r"^description:\s*([>|][+-]?)$", trimmed)
+        if m_scalar or re.match(r"^description:\s*$", line):
+            desc_line_indices.append(i)
+            j = i + 1
+            while j < len(lines):
+                subline = lines[j]
+                if not subline.strip():
+                    j += 1
+                    continue
+                if subline.startswith(" ") or subline.startswith("\t"):
+                    desc_line_indices.append(j)
+                    j += 1
+                else:
+                    break
+            i = j
             continue
-        if line.startswith(" ") or line.startswith("\t"):
-            if in_skipped_block:
-                continue
-            lines.append(line)
-            continue
-        key = line.split(":", 1)[0].strip()
-        if key in known_fields:
-            in_skipped_block = True
-        else:
-            in_skipped_block = False
-            lines.append(line)
-    lines.append("---")
-    new_fm_text = "\n".join(lines)
-    return f"{new_fm_text}\n{body}"
+        elif re.match(r"^description:\s*\S", line):
+            desc_line_indices.append(i)
+        i += 1
 
-def fix_skill(entry, is_dry_run, is_assume_yes):
-    dir_name = entry.get("install_name") or entry["name"]
+    caps_line_indices = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if re.match(r"^capabilities:\s*$", line) or re.match(r"^capabilities:\s*([>|][+-]?)$", line.strip()):
+            caps_line_indices.append(i)
+            j = i + 1
+            while j < len(lines):
+                subline = lines[j]
+                if not subline.strip():
+                    j += 1
+                    continue
+                if subline.startswith(" ") or subline.startswith("\t"):
+                    caps_line_indices.append(j)
+                    j += 1
+                else:
+                    break
+            i = j
+            continue
+        elif re.match(r"^capabilities:\s*\S", line):
+            caps_line_indices.append(i)
+        i += 1
+
+    cat_line_indices = [idx for idx, l in enumerate(lines) if re.match(r"^category:\s*", l)]
+    indices_to_remove = set(desc_line_indices + caps_line_indices + cat_line_indices)
+
+    preserved = []
+    for idx, l in enumerate(lines):
+        if idx not in indices_to_remove:
+            preserved.append(l)
+
+    name_idx = -1
+    for idx, l in enumerate(preserved):
+        if re.match(r"^name:\s*", l):
+            name_idx = idx
+            break
+
+    insert_lines = [f"description: {new_desc}", "capabilities:"]
+    for c in new_caps:
+        insert_lines.append(f"  - {c}")
+    insert_lines.append(f"category: {new_cat}")
+
+    if name_idx >= 0:
+        new_lines = preserved[:name_idx+1] + insert_lines + preserved[name_idx+1:]
+    else:
+        new_lines = insert_lines + preserved
+
+    return "\n".join(new_lines)
+
+def fix_skill(entry, is_dry_run, confirm_yes):
+    dir_name = entry.get("install_name", entry["name"])
     source_disk = skills_dir / dir_name
     link_disk = link_dir / dir_name
-    source_file = source_disk / "SKILL.md"
-    link_file = link_disk / "SKILL.md"
-
     target_file = None
-    if source_file.is_file():
-        target_file = source_file
-    elif link_file.is_file():
-        target_file = link_file
+    target_disk = None
+
+    if (source_disk / "SKILL.md").is_file():
+        target_file = source_disk / "SKILL.md"
+        target_disk = source_disk
+    elif (link_disk / "SKILL.md").is_file():
+        target_file = link_disk / "SKILL.md"
+        target_disk = link_disk
     else:
-        print(f"skipping {entry['name']}: SKILL.md not found")
+        print(f"Skipping {entry['name']}: SKILL.md not found")
         return
 
-    is_symlink = is_symlink_or_reparse(target_file)
     try:
-        raw_content = target_file.read_text(encoding="utf-8", errors="replace")
-    except Exception as exc:
-        print(f"skipping {entry['name']}: read error: {exc}")
+        raw_content = target_file.read_text(encoding="utf-8")
+    except Exception as ex:
+        print(f"Skipping {entry['name']}: unable to read SKILL.md: {ex}")
         return
 
-    fm_match = re.search(r"(?ms)^---\s*\r?\n(.*?)\r?\n---(?:\s*\r?\n|$)", raw_content)
-    if not fm_match:
-        print(f"skipping {entry['name']}: invalid or missing YAML frontmatter")
+    check_match = re.search(r"(?ms)^---\s*\r?\n(.*?)\r?\n---(?:\s*\r?\n(.*))?$", raw_content)
+    if not check_match:
+        print(f"Skipping {entry['name']}: frontmatter missing or invalid")
         return
-    frontmatter = fm_match.group(1)
-    old_name = extract_frontmatter_field(frontmatter, "name") or entry["name"]
+
+    frontmatter = check_match.group(1)
+    body = check_match.group(2) or ""
+
     old_desc = extract_frontmatter_field(frontmatter, "description")
     old_caps = extract_frontmatter_field(frontmatter, "capabilities")
     old_cat = extract_frontmatter_field(frontmatter, "category")
 
-    if not old_desc:
-        print(f"skipping {entry['name']}: description missing in frontmatter")
-        return
-
     new_desc, changed, skip, reason = rewrite_description(old_desc)
     if skip:
-        print(f"skipping {entry['name']}: {reason}")
+        print(f"Skipping {entry['name']}: {reason}")
         return
 
-    new_caps = get_top_capabilities(frontmatter, old_name, new_desc, entry.get("category"))
-    new_cat = old_cat or entry.get("category") or "other"
+    new_cat = infer_category(old_cat, entry["name"], new_desc, derive_keywords(entry["name"], new_desc))
+    new_caps = get_top_capabilities(frontmatter, entry["name"], new_desc, new_cat)
 
-    backup_dir = skills_dir / ".backups"
-    timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
-    backup_path = backup_dir / f"{entry['name']}-{timestamp}-SKILL.md"
-
-    fixed_content = build_fixed_frontmatter(raw_content, old_name, new_desc, new_caps, new_cat)
+    new_frontmatter = build_fixed_frontmatter(frontmatter, new_desc, new_caps, new_cat)
+    is_symlink = is_symlink_or_reparse(target_disk) or is_symlink_or_reparse(target_file)
 
     if is_symlink:
         print(f"refusing to modify symlink: {target_file}; suggested patch for {entry['name']}:")
-        print("---")
-        print(f"name: {old_name}")
-        print(f"description: {new_desc}")
-        print("capabilities:")
-        for c in new_caps:
-            print(f"  - {c}")
-        print(f"category: {new_cat}")
-        print("---")
+        print("---\n" + new_frontmatter + "\n---")
         return
 
     if is_dry_run:
         print(f"[proposed] {entry['name']}\n")
-        print("description (before):")
-        print(f"  {old_desc}\n")
-        print("description (after):")
-        print(f"  {new_desc}\n")
+        print(f"description (before):\n  {old_desc}\n")
+        print(f"description (after):\n  {new_desc}\n")
         print("capabilities (added):")
         for c in new_caps:
             print(f"  - {c}")
-        print("\ncategory (added):")
-        print(f"  {new_cat}\n")
-        print(f"no symlink. backup would go to: $CLAUDE_SKILLS_DIR/.backups/{entry['name']}-{timestamp}-SKILL.md\n")
+        print(f"\ncategory (added):\n  {new_cat}\n")
+        ts = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        print(f"no symlink. backup would go to: $CLAUDE_SKILLS_DIR/.backups/{entry['name']}-{ts}-SKILL.md\n")
         return
 
-    if not is_assume_yes:
+    if not confirm_yes:
+        print(f"[proposed] {entry['name']}\n")
+        print(f"description (after):\n  {new_desc}\n")
+        print(f"capabilities (added):\n  {', '.join(new_caps)}\n")
+        print(f"category (added):\n  {new_cat}\n")
         try:
-            resp = input(f"Apply fix to {entry['name']}? [y/N] ").strip().lower()
+            ans = input("Apply changes to this skill? [y/N] ").strip().lower()
         except (EOFError, KeyboardInterrupt):
-            resp = "n"
-        if resp not in ("y", "yes"):
+            ans = "n"
+        if ans not in ("y", "yes"):
             print(f"Skipped {entry['name']}.")
             return
 
+    backup_dir = skills_dir / ".backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
-    backup_path.write_text(raw_content, encoding="utf-8")
-    target_file.write_text(fixed_content, encoding="utf-8")
-
-    # verify
+    ts = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_file = backup_dir / f"{entry['name']}-{ts}-SKILL.md"
     try:
-        written_check = target_file.read_text(encoding="utf-8", errors="replace")
-        check_match = re.search(r"(?ms)^---\s*\r?\n(.*?)\r?\n---(?:\s*\r?\n|$)", written_check)
-        if not check_match:
-            print(f"ERROR: verification failed after writing {target_file}. Restoring backup...")
-            target_file.write_text(raw_content, encoding="utf-8")
-            return
-    except Exception as exc:
-        print(f"ERROR: verification failed: {exc}. Restoring backup...")
+        backup_file.write_text(raw_content, encoding="utf-8")
+    except Exception as ex:
+        print(f"Failed to create backup for {entry['name']}: {ex}")
+        return
+
+    new_full_content = "---\n" + new_frontmatter + "\n---\n" + body
+    try:
+        target_file.write_text(new_full_content, encoding="utf-8")
+    except Exception as ex:
+        print(f"Failed to write changes for {entry['name']}: {ex}")
+        return
+
+    try:
+        verify_content = target_file.read_text(encoding="utf-8")
+        verify_match = re.search(r"(?ms)^---\s*\r?\n(.*?)\r?\n---(?:\s*\r?\n(.*))?$", verify_content)
+        if not verify_match or not extract_frontmatter_field(verify_match.group(1), "name"):
+            raise ValueError("Verification failed: corrupted frontmatter")
+    except Exception as ex:
+        print(f"CRITICAL: verification failed after modifying {entry['name']}, restoring from backup: {ex}")
         target_file.write_text(raw_content, encoding="utf-8")
         return
 
     before_warnings = get_trigger_warning_count(frontmatter, old_desc, old_caps, old_cat)
-    after_warnings = get_trigger_warning_count(check_match.group(1), new_desc, ",".join(new_caps), new_cat)
+    after_warnings = get_trigger_warning_count(new_frontmatter, new_desc, ",".join(new_caps), new_cat)
 
     print(f"fixed {entry['name']}: description rewritten, capabilities + category added")
     print(f"  trigger quality: {after_warnings} ⚠ (was {before_warnings} ⚠)")
@@ -1011,19 +1182,27 @@ try:
     index = load_index()
 
     if mode == "refresh":
+        if selected_agent != "claude":
+            raise SystemExit(f"not-yet-implemented: see adapters/{selected_agent}/stub-note.md")
         index = build_index()
         index = apply_registration(index)
         write_index(index)
         print_entries(index["skills"])
     elif mode == "capabilities":
-        print_capabilities(index)
+        target_skills = filter_skills_by_agent(index.get("skills", []), selected_agent, all_agents)
+        if not target_skills and not all_agents:
+            print(f"No visible skills for agent '{selected_agent}' (use --all-agents to inspect all catalog skills).")
+            raise SystemExit(0)
+        print_capabilities(index, target_skills)
     elif mode == "list":
-        print_entries(index.get("skills", []))
+        target_skills = filter_skills_by_agent(index.get("skills", []), selected_agent, all_agents)
+        print_entries(target_skills)
     elif mode == "find":
         if not query.strip():
             raise SystemExit("--find needs a query")
+        pool = filter_skills_by_agent(index.get("skills", []), selected_agent, all_agents)
         scored = []
-        for entry in index.get("skills", []):
+        for entry in pool:
             sc = score(entry, query)
             if sc > 0:
                 scored.append({"score": sc, "entry": entry})
@@ -1061,16 +1240,23 @@ try:
                 if key == "capabilities":
                     val = ", ".join(entry.get("capabilities", []))
                 print(f"{key}: {val}")
-            print(f"agents.claude.visible: {entry.get('agents', {}).get('claude', {}).get('visible')}")
+            for ag in ("claude", "codex", "antigravity"):
+                ag_info = entry.get("agents", {}).get(ag, {})
+                print(f"agents.{ag}.visible: {ag_info.get('visible', False)}")
             print(f"usage.status: {entry.get('usage', {}).get('status', 'unknown')}")
             print("invocation_hint: Ask Claude Code to use the named skill for a matching task. Automatic invocation is not observable by this catalog.")
     elif mode == "doctor":
+        if selected_agent != "claude" and not all_agents:
+            print(f"doctor: agent '{selected_agent}' is a stub adapter (not-yet-implemented). No skills installed.")
+            raise SystemExit(0)
         fresh = build_index()
         if requested_name:
             doctor_single(requested_name, fresh)
         else:
             doctor_global(fresh)
     elif mode == "fix":
+        if selected_agent != "claude":
+            raise SystemExit(f"not-yet-implemented: see adapters/{selected_agent}/stub-note.md")
         fresh = build_index()
         if requested_name:
             entry = next((item for item in fresh.get("skills", []) if item["name"] == requested_name or item.get("install_name") == requested_name), None)
@@ -1107,4 +1293,3 @@ except (BrokenPipeError, IOError, OSError):
         pass
     sys.exit(0)
 PY
-

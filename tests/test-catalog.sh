@@ -97,8 +97,8 @@ show_output="$(bash "$CATALOG" --show slides-skill)"
 [[ "$show_output" == *"presentations"* ]]
 [[ "$show_output" == *"unknown"* ]]
 
-# V2.0 Schema & Capabilities & Manual Scan Verification
-grep -q '"schema_version": 2' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
+# V3.0 Schema & Capabilities & Manual Scan Verification
+grep -q '"schema_version": 3' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
 grep -q '"capabilities":' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
 grep -q '"discovered_at":' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
 grep -q '"category": "media"' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
@@ -224,7 +224,7 @@ EOF
 cat > "$CLAUDE_SKILLS_LINK_DIR/case-b-skill/SKILL.md" <<'EOF'
 ---
 name: case-b-skill
-description: Build and deploy full-stack applications with ease and speed.
+description: Build and deploy full-stack web applications with modern architecture, automated CI/CD pipelines, and high-quality frontend styling.
 ---
 # case-b-skill
 EOF
@@ -258,4 +258,49 @@ grep -q 'Use when the user wants to build and deploy' "$CLAUDE_SKILLS_LINK_DIR/c
 doctor_after_output="$(bash "$CATALOG" --doctor --name case-b-skill)"
 [[ "$doctor_after_output" =~ "Trigger description looks Claude-discoverable" ]]
 
+# 6. V3.0 Multi-Agent Tests
+# A. Default agent claude
+caps_claude="$(bash "$CATALOG" --capabilities --agent claude)"
+[[ "$caps_claude" =~ "Development" ]]
+
+# B. Stub agent codex in capabilities
+caps_codex="$(bash "$CATALOG" --capabilities --agent codex)"
+[[ "$caps_codex" =~ "No visible skills for agent 'codex'" ]]
+
+# C. All-agents flag with stub agent
+caps_all="$(bash "$CATALOG" --capabilities --agent codex --all-agents)"
+[[ "$caps_all" =~ "Development" ]]
+
+# D. CLAUDE_SKILLS_AGENT=antigravity environment variable
+caps_anti="$(CLAUDE_SKILLS_AGENT=antigravity bash "$CATALOG" --capabilities)"
+[[ "$caps_anti" =~ "No visible skills for agent 'antigravity'" ]]
+
+# E. Show command displays per-agent visibility
+show_out="$(bash "$CATALOG" --show case-b-skill)"
+[[ "$show_out" =~ "agents.claude.visible: True" ]]
+[[ "$show_out" =~ "agents.codex.visible: False" ]]
+[[ "$show_out" =~ "agents.antigravity.visible: False" ]]
+
+# F. Schema v3 migration from legacy v2 JSON
+cat > "$CLAUDE_SKILLS_DIR/installed-skills-index.json" <<'EOF'
+{
+  "schema_version": 2,
+  "generated_at": "2026-08-23T00:00:00Z",
+  "skills": [
+    {
+      "name": "legacy-skill",
+      "install_name": "legacy-skill",
+      "description": "Legacy test skill",
+      "status": "ok",
+      "health": "ok"
+    }
+  ]
+}
+EOF
+
+migrated_show="$(bash "$CATALOG" --show legacy-skill)"
+[[ "$migrated_show" =~ "agents.claude.visible: True" ]]
+[[ "$migrated_show" =~ "agents.codex.visible: False" ]]
+
 echo 'PASS: catalog regression tests'
+

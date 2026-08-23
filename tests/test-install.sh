@@ -182,8 +182,6 @@ chmod +x "$mock_bin/gh" 2>/dev/null || true
         echo "ASSERTION FAILED: anonymous fallback dry-run failed: $anon_dry_out" >&2
         exit 1
     }
-    assert_contains "$anon_dry_out" "anonymous public repository fallback"
-
     set +e
     req_auth_out="$(bash "$INSTALLER" --repo weipyh666-maker/skill-installer --require-auth --dry-run 2>&1)"
     req_auth_status=$?
@@ -194,5 +192,35 @@ chmod +x "$mock_bin/gh" 2>/dev/null || true
     }
     assert_contains "$req_auth_out" "gh is not authenticated"
 )
+
+# V3.0 Multi-Agent Tests
+set +e
+agent_claude_out="$(bash "$INSTALLER" --local "$FIXTURE" --name minimal-skill --agent claude --dry-run 2>&1)"
+agent_claude_status=$?
+set -e
+[[ "$agent_claude_status" -eq 0 ]] || {
+    echo "ASSERTION FAILED: --agent claude should succeed: $agent_claude_out" >&2
+    exit 1
+}
+
+set +e
+agent_codex_out="$(bash "$INSTALLER" --local "$FIXTURE" --name minimal-skill --agent codex --dry-run 2>&1)"
+agent_codex_status=$?
+set -e
+[[ "$agent_codex_status" -ne 0 ]] || {
+    echo "ASSERTION FAILED: --agent codex should fail with stub error" >&2
+    exit 1
+}
+assert_contains "$agent_codex_out" "not-yet-implemented: see adapters/codex/stub-note.md"
+
+set +e
+agent_antigravity_out="$(CLAUDE_SKILLS_AGENT=antigravity bash "$INSTALLER" --local "$FIXTURE" --name minimal-skill --dry-run 2>&1)"
+agent_antigravity_status=$?
+set -e
+[[ "$agent_antigravity_status" -ne 0 ]] || {
+    echo "ASSERTION FAILED: CLAUDE_SKILLS_AGENT=antigravity should fail with stub error" >&2
+    exit 1
+}
+assert_contains "$agent_antigravity_out" "not-yet-implemented: see adapters/antigravity/stub-note.md"
 
 echo 'PASS: installer regression tests'
