@@ -98,6 +98,28 @@ PY
     fail 'python3, python or realpath is required for safe path validation'
 }
 
+lexical_path() {
+    if command -v realpath >/dev/null 2>&1 && realpath -m -s -- . >/dev/null 2>&1; then
+        realpath -m -s -- "$1"
+        return
+    fi
+    if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys' >/dev/null 2>&1; then
+        python3 - "$1" <<'PY'
+import os, sys
+print(os.path.abspath(os.path.expanduser(sys.argv[1])).replace('\\', '/'))
+PY
+        return
+    fi
+    if command -v python >/dev/null 2>&1 && python -c 'import sys' >/dev/null 2>&1; then
+        python - "$1" <<'PY'
+import os, sys
+print(os.path.abspath(os.path.expanduser(sys.argv[1])).replace('\\', '/'))
+PY
+        return
+    fi
+    fail 'python3, python or realpath is required for lexical path validation'
+}
+
 valid_name() {
     [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]
 }
@@ -132,8 +154,8 @@ assert_safe_hash() {
 
 assert_child_path() {
     local base child
-    base="$(canonical_path "$1")"
-    child="$(canonical_path "$2")"
+    base="$(lexical_path "$1")"
+    child="$(lexical_path "$2")"
     [[ "$child" == "$base/"* && "$child" != "$base" ]] || fail "$3 escapes its allowed directory: $child"
 }
 
