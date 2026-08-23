@@ -56,19 +56,25 @@ ok() { printf '  + %s\n' "$1"; }
 warn() { printf '  ! %s\n' "$1" >&2; }
 
 canonical_path() {
+    if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys' >/dev/null 2>&1; then
+        python3 - "$1" <<'PY'
+import os, sys, pathlib
+print(pathlib.Path(os.path.expanduser(sys.argv[1])).resolve().as_posix())
+PY
+        return
+    fi
+    if command -v python >/dev/null 2>&1 && python -c 'import sys' >/dev/null 2>&1; then
+        python - "$1" <<'PY'
+import os, sys, pathlib
+print(pathlib.Path(os.path.expanduser(sys.argv[1])).resolve().as_posix())
+PY
+        return
+    fi
     if command -v realpath >/dev/null 2>&1 && realpath -m -- . >/dev/null 2>&1; then
         realpath -m -- "$1"
         return
     fi
-    if command -v python3 >/dev/null 2>&1; then
-        python3 - "$1" <<'PY'
-import os
-import sys
-print(os.path.abspath(os.path.expanduser(sys.argv[1])))
-PY
-        return
-    fi
-    fail 'realpath (with -m) or python3 is required for safe path validation'
+    fail 'python3 or realpath (with -m) is required for safe path validation'
 }
 
 valid_name() {

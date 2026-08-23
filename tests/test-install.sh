@@ -59,7 +59,10 @@ set -e
     echo "ASSERTION FAILED: existing install did not require --force" >&2
     exit 1
 }
-grep -q 'keep me' "$CLAUDE_SKILLS_DIR/minimal-skill/sentinel.txt"
+grep -q 'keep me' "$CLAUDE_SKILLS_DIR/minimal-skill/sentinel.txt" || {
+    echo "ASSERTION FAILED: sentinel.txt was deleted or modified" >&2
+    exit 1
+}
 
 set +e
 secret_skill="$SANDBOX/secret-skill"
