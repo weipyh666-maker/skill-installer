@@ -145,4 +145,54 @@ memory_rows="$(grep -c '| memory-skill |' "$CLAUDE_SKILLS_DIR/installed-tools-su
     exit 1
 }
 
+# Option flags validation tests
+set +e
+mutex_out="$(bash "$INSTALLER" --repo owner/repo --require-auth --allow-anonymous-fallback --dry-run 2>&1)"
+mutex_status=$?
+set -e
+[[ "$mutex_status" -ne 0 ]] || {
+    echo "ASSERTION FAILED: --require-auth and --allow-anonymous-fallback should be mutually exclusive" >&2
+    exit 1
+}
+assert_contains "$mutex_out" "use either --require-auth or --allow-anonymous-fallback"
+
+set +e
+local_auth_out="$(bash "$INSTALLER" --local "$FIXTURE" --require-auth --dry-run 2>&1)"
+local_auth_status=$?
+set -e
+[[ "$local_auth_status" -ne 0 ]] || {
+    echo "ASSERTION FAILED: --require-auth with --local should fail" >&2
+    exit 1
+}
+
+# Mock unauthenticated gh environment
+mock_bin="$SANDBOX/mock-bin"
+mkdir -p "$mock_bin"
+printf '#!/bin/sh\nexit 1\n' > "$mock_bin/gh"
+chmod +x "$mock_bin/gh" 2>/dev/null || true
+
+(
+    export PATH="$mock_bin:$PATH"
+
+    set +e
+    anon_dry_out="$(bash "$INSTALLER" --repo weipyh666-maker/skill-installer --dry-run 2>&1)"
+    anon_dry_status=$?
+    set -e
+    [[ "$anon_dry_status" -eq 0 ]] || {
+        echo "ASSERTION FAILED: anonymous fallback dry-run failed: $anon_dry_out" >&2
+        exit 1
+    }
+    assert_contains "$anon_dry_out" "anonymous public repository fallback"
+
+    set +e
+    req_auth_out="$(bash "$INSTALLER" --repo weipyh666-maker/skill-installer --require-auth --dry-run 2>&1)"
+    req_auth_status=$?
+    set -e
+    [[ "$req_auth_status" -ne 0 ]] || {
+        echo "ASSERTION FAILED: --require-auth with unauthenticated gh should fail" >&2
+        exit 1
+    }
+    assert_contains "$req_auth_out" "gh is not authenticated"
+)
+
 echo 'PASS: installer regression tests'

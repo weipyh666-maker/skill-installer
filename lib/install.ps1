@@ -23,7 +23,9 @@ param(
     [switch]$SkipMemoryUpdate,
     [switch]$SkipCatalogUpdate,
     [string]$ExpectedSha256,
-    [switch]$RequirePinnedRef
+    [switch]$RequirePinnedRef,
+    [switch]$RequireAuth,
+    [switch]$AllowAnonymousFallback
 )
 
 $ErrorActionPreference = 'Stop'
@@ -224,6 +226,9 @@ try {
     if ($Ref -and -not $Repo) { Fail '-Ref can only be used with -Repo.' }
     if ($ExpectedSha256 -and -not $Repo) { Fail '-ExpectedSha256 can only be used with -Repo.' }
     if ($RequirePinnedRef -and -not $Repo) { Fail '-RequirePinnedRef can only be used with -Repo.' }
+    if ($RequireAuth -and $AllowAnonymousFallback) { Fail 'Use either -RequireAuth or -AllowAnonymousFallback, not both.' }
+    if ($RequireAuth -and -not $Repo) { Fail '-RequireAuth can only be used with -Repo.' }
+    if ($AllowAnonymousFallback -and -not $Repo) { Fail '-AllowAnonymousFallback can only be used with -Repo.' }
     if ($RunSmokeTest -and $SkipSmokeTest) { Fail 'Use either -RunSmokeTest or -SkipSmokeTest, not both.' }
     if ($UpdateMemory -and $SkipMemoryUpdate) { Fail 'Use either -UpdateMemory or -SkipMemoryUpdate, not both.' }
     if ($RequirePinnedRef -and -not $Ref) { Fail 'RequirePinnedRef needs an explicit -Ref tag or commit SHA.' }
@@ -248,11 +253,26 @@ try {
     Assert-ChildPath $LinkBase $LinkPath 'Link path'
 
     Write-Step 1 'Pre-flight and input validation'
-    if ($Mode -eq 'GitHub' -and -not $DryRun) {
-        if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { Fail 'gh CLI not found. Install it, then run gh auth login.' }
+    $GhAvailable = $false
+    $GhAuthenticated = $false
+    if (Get-Command gh -ErrorAction SilentlyContinue) {
+        $GhAvailable = $true
         & gh auth status *> $null
-        if ($LASTEXITCODE -ne 0) { Fail 'gh is not authenticated. Run gh auth login.' }
-        Write-Ok 'gh authenticated'
+        if ($LASTEXITCODE -eq 0) { $GhAuthenticated = $true }
+    }
+
+    $UseAnonymousGitHub = $false
+    if ($Mode -eq 'GitHub') {
+        if ($GhAuthenticated) {
+            Write-Ok 'gh authenticated'
+        } else {
+            if ($RequireAuth) {
+                if (-not $GhAvailable) { Fail 'gh CLI not found. Install it and run gh auth login, or omit -RequireAuth for public repositories.' }
+                Fail 'gh is not authenticated. Run gh auth login, or omit -RequireAuth for public repositories.'
+            }
+            $UseAnonymousGitHub = $true
+            Write-Ok 'gh not authenticated; using anonymous public repository fallback'
+        }
     } else {
         Write-Ok "mode = $Mode; no GitHub authentication required"
     }
@@ -304,20 +324,50 @@ try {
             Write-Ok "staged local source: $LocalPath"
         } else {
             $tarball = Join-Path $TempRoot 'source.tar.gz'
-            $stderr = Join-Path $TempRoot 'gh-error.txt'
-            $apiPath = "repos/$Repo/tarball"
-            if ($Ref) { $apiPath += "/$Ref" }
-            Invoke-GhApiBinary $apiPath $tarball $stderr
+            $commitRef = if ($Ref) { $Ref } else { 'HEAD' }
+
+            if (-not $UseAnonymousGitHub) {
+                $stderr = Join-Path $TempRoot 'gh-error.txt'
+                $apiPath = "repos/$Repo/tarball"
+                if ($Ref) { $apiPath += "/$Ref" }
+                Invoke-GhApiBinary $apiPath $tarball $stderr
+                $ResolvedCommit = (& gh api "repos/$Repo/commits/$commitRef" --jq '.sha' 2>$null | Out-String).Trim()
+                if ($LASTEXITCODE -ne 0 -or $ResolvedCommit -notmatch '^[A-Fa-f0-9]{40}$') {
+                    Fail 'Could not resolve the downloaded ref to a commit SHA via gh api.'
+                }
+            } else {
+                $tarballUrl = "https://api.github.com/repos/$Repo/tarball"
+                if ($Ref) { $tarballUrl += "/$Ref" }
+                $headers = @{
+                    'User-Agent' = 'skill-installer'
+                    'Accept'     = 'application/vnd.github+json'
+                }
+                try {
+                    Invoke-WebRequest -Uri $tarballUrl -OutFile $tarball -Headers $headers -UseBasicParsing -ErrorAction Stop
+                } catch {
+                    Fail "Anonymous download failed from $tarballUrl. Repository may be private (requires gh auth login) or rate-limited: $($_.Exception.Message)"
+                }
+
+                $commitUrl = "https://api.github.com/repos/$Repo/commits/$commitRef"
+                try {
+                    $commitData = Invoke-RestMethod -Uri $commitUrl -Headers $headers -UseBasicParsing -ErrorAction Stop
+                    if ($commitData.sha -and $commitData.sha -match '^[A-Fa-f0-9]{40}$') {
+                        $ResolvedCommit = $commitData.sha
+                    } else {
+                        Fail "Could not resolve commit SHA from anonymous response ($commitUrl)."
+                    }
+                } catch {
+                    $err = $_.Exception.Message
+                    Fail "Failed to resolve commit SHA anonymously from $commitUrl - $err"
+                }
+            }
+
             $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $tarball).Hash
             $DownloadedDigest = $actualHash
             if ($ExpectedSha256 -and $actualHash -ne $ExpectedSha256.ToUpperInvariant()) {
                 Fail "Tarball SHA256 mismatch. Expected $ExpectedSha256, got $actualHash"
             }
-            $commitRef = if ($Ref) { $Ref } else { 'HEAD' }
-            $ResolvedCommit = (& gh api "repos/$Repo/commits/$commitRef" --jq '.sha' 2>$null | Out-String).Trim()
-            if ($LASTEXITCODE -ne 0 -or $ResolvedCommit -notmatch '^[A-Fa-f0-9]{40}$') {
-                Fail 'Could not resolve the downloaded ref to a commit SHA.'
-            }
+
             $extractDir = Join-Path $TempRoot 'extract'
             New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
             & tar -xzf $tarball -C $extractDir 2>$null
@@ -325,7 +375,7 @@ try {
             $inners = @(Get-ChildItem -LiteralPath $extractDir -Directory)
             if ($inners.Count -ne 1) { Fail 'Unexpected GitHub tarball layout.' }
             Copy-DirectoryContents $inners[0].FullName $stagePath
-            Write-Ok "downloaded $Repo at commit $ResolvedCommit"
+            Write-Ok "downloaded $Repo at commit $ResolvedCommit $(if ($UseAnonymousGitHub) { '(anonymous fallback)' } else { '(gh authenticated)' })"
             Write-Ok "tarball SHA256 = $actualHash"
         }
 

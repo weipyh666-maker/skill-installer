@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.0] — 2026-08-23
+
+### Added
+- Added anonymous download fallback for public GitHub repositories via `curl` (Bash) and `Invoke-WebRequest` / `Invoke-RestMethod` (PowerShell). Users without `gh` or without active `gh auth login` sessions can now install public skills seamlessly.
+- Maintained immutable provenance by querying the public commits API to resolve the exact 40-character commit SHA during anonymous installs.
+- Added `--require-auth` / `-RequireAuth` switch to strictly require `gh` authentication and reject anonymous fallback.
+- Added `--allow-anonymous-fallback` / `-AllowAnonymousFallback` switch (default behavior).
+- Added regression test suites mocking unauthenticated `gh` environments and verifying option exclusivity on both Bash and PowerShell.
+
 ## [0.4.0] — 2026-08-23
 
 ### Security

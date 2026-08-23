@@ -94,6 +94,35 @@ try {
     $memoryRows = @(Select-String -LiteralPath (Join-Path $sourceRoot 'installed-tools-summary.md') -Pattern '\| memory-skill \|')
     Assert-True ($memoryRows.Count -eq 1) 'memory update should be idempotent'
 
+    # Option flags validation tests
+    $mutexAuth = Invoke-Installer @('-Repo', 'owner/repo', '-RequireAuth', '-AllowAnonymousFallback', '-DryRun')
+    Assert-True ($mutexAuth.ExitCode -ne 0) '-RequireAuth and -AllowAnonymousFallback should be mutually exclusive'
+    Assert-True ($mutexAuth.Output -match 'Use either -RequireAuth or -AllowAnonymousFallback') 'mutex error should explain the conflict'
+
+    $localAuthErr = Invoke-Installer @('-LocalPath', $fixture, '-RequireAuth', '-DryRun')
+    Assert-True ($localAuthErr.ExitCode -ne 0) '-RequireAuth with local path should fail'
+
+    # Mock unauthenticated gh environment
+    $mockBin = Join-Path $sandbox 'mock-bin'
+    New-Item -ItemType Directory -Path $mockBin -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $mockBin 'gh.cmd') -Value "@exit /b 1`r`n" -Encoding ascii
+    $oldPath = $env:PATH
+    try {
+        $env:PATH = "$mockBin;$oldPath"
+
+        # Anonymous fallback dry-run
+        $anonDry = Invoke-Installer @('-Repo', 'weipyh666-maker/skill-installer', '-DryRun')
+        Assert-True ($anonDry.ExitCode -eq 0) "anonymous fallback dry-run should succeed. Output: $($anonDry.Output)"
+        Assert-True ($anonDry.Output -match 'anonymous public repository fallback') 'pre-flight should report anonymous fallback'
+
+        # RequireAuth with unauthenticated gh must fail
+        $reqAuthFail = Invoke-Installer @('-Repo', 'weipyh666-maker/skill-installer', '-RequireAuth', '-DryRun')
+        Assert-True ($reqAuthFail.ExitCode -ne 0) 'RequireAuth must fail when gh is unauthenticated'
+        Assert-True ($reqAuthFail.Output -match 'gh is not authenticated|gh CLI not found') 'RequireAuth failure should mention gh'
+    } finally {
+        $env:PATH = $oldPath
+    }
+
     Write-Output 'PASS: installer regression tests'
 }
 finally {

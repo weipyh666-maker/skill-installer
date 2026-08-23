@@ -21,19 +21,18 @@ This release installs one skill at a time. Discovery and ranking of skills belon
 ### Windows
 
 - PowerShell 5.1 or newer.
-- GitHub CLI (gh) and gh auth login for GitHub sources.
-- tar for GitHub archives.
+- `tar` for GitHub archives.
+- GitHub CLI (`gh`) and `gh auth login` for private repositories. Public repositories download via built-in `Invoke-WebRequest` without `gh`.
 
 ### macOS / Linux / WSL
 
 - Bash.
-- gh and gh auth login for GitHub sources.
-- tar.
-- realpath or Python 3 for safe path normalization.
-- sha256sum or shasum for digest verification.
-- Python 3 for Bash catalog commands (`--list`, `--find`, `--show`, `--doctor`, `--refresh`).
+- `tar`.
+- `curl` (or `gh`) for GitHub sources. `gh auth login` is only required for private repositories.
+- Python 3 for safe path normalization and Bash catalog commands (`--list`, `--find`, `--show`, `--doctor`, `--refresh`).
+- `sha256sum` or `shasum` for digest verification.
 
-Local installs and dry-runs do not require GitHub authentication.
+Public GitHub installs, local installs, and dry-runs do not require GitHub authentication.
 
 ## Quick start
 
@@ -43,10 +42,14 @@ Local installs and dry-runs do not require GitHub authentication.
 # Validate without changing files
 pwsh -File lib\install.ps1 -LocalPath .\my-skill -DryRun
 
-# Install a reviewed, pinned ref
-pwsh -File lib\install.ps1 -Repo owner/skill-name -Ref 0123456789abcdef0123456789abcdef01234567
+# Install a public repository (no gh auth login required)
+pwsh -File lib\install.ps1 -Repo owner/skill-name -Ref v1.0.0
 
-# Add -ExpectedSha256 <trusted-64-character-digest> when one is available
+# Install a reviewed, pinned ref with expected digest
+pwsh -File lib\install.ps1 -Repo owner/skill-name -Ref 0123456789abcdef0123456789abcdef01234567 -ExpectedSha256 64-character-sha256
+
+# Require gh authentication (reject anonymous fallback)
+pwsh -File lib\install.ps1 -Repo owner/private-skill -RequireAuth
 
 # Install from a local directory
 pwsh -File lib\install.ps1 -LocalPath .\my-skill
@@ -64,8 +67,14 @@ pwsh -File lib\install.ps1 -Repo owner/cli-skill -Ref v1.2.3 -RunSmokeTest
 # Validate without changing files
 bash lib/install.sh --local ./my-skill --dry-run
 
-# Install a reviewed, pinned ref
+# Install a public repository (no gh auth login required)
+bash lib/install.sh owner/skill-name --ref v1.0.0
+
+# Install a reviewed, pinned ref with expected digest
 bash lib/install.sh owner/skill-name --ref 0123456789abcdef0123456789abcdef01234567 --expected-sha256 64-character-sha256
+
+# Require gh authentication (reject anonymous fallback)
+bash lib/install.sh owner/private-skill --require-auth
 
 # Install from a local directory
 bash lib/install.sh --local ./my-skill
@@ -147,6 +156,8 @@ Usage is reported as `unknown` unless the host provides a trustworthy invocation
 | -UpdateMemory | --update-memory | Append one idempotent memory row |
 | -ExpectedSha256 | --expected-sha256 | Verify the archive digest |
 | -RequirePinnedRef | --require-pinned-ref | Reject an omitted ref |
+| -RequireAuth | --require-auth | Require gh authentication; disable anonymous fallback |
+| -AllowAnonymousFallback | --allow-anonymous-fallback | Allow anonymous fallback if gh is not authenticated (default) |
 | -SkipCatalogUpdate | --skip-catalog-update | Do not refresh the installed-skill index |
 
 ## Environment variables
@@ -210,6 +221,8 @@ The test suite uses temporary directories and never writes to a user's Claude Co
 Version 0.3.1 adds the installed-skill catalog, search commands, safe multi-line YAML parsing, and English/Chinese compound search filtering. It refreshes the index after successful installation while keeping usage status explicitly unknown when the host exposes no invocation events.
 
 Version 0.4.0 hardens the safety model against nested symbolic links and reparse points, aligns the Bash and PowerShell regression matrices, and adds GitHub Actions CI across Ubuntu, macOS, and Windows.
+
+Version 0.5.0 adds an anonymous public repository installation path (via curl on Linux/macOS and Invoke-WebRequest on Windows) removing the mandatory `gh auth login` requirement for public skills while preserving resolved commit SHA provenance, and provides `--require-auth` / `--allow-anonymous-fallback` controls.
 
 ## License
 

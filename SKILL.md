@@ -37,6 +37,7 @@ Do not use it to discover or rank candidate skills. Use a marketplace or skill-f
 - Never execute downloaded code by default.
 - Reject symbolic links, junctions, or other reparse points inside a downloaded or local source.
 - Prefer an immutable commit SHA and verify ExpectedSha256 when available.
+- Support anonymous public repository downloads, with --require-auth available to enforce gh authentication.
 - Stop if the source does not contain a valid root SKILL.md.
 - Report usage as unknown unless the host provides a trustworthy invocation event.
 

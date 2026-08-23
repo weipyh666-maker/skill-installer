@@ -21,6 +21,9 @@ SKIP_MEMORY=0
 SKIP_CATALOG=0
 EXPECTED_SHA256=''
 REQUIRE_PINNED=0
+REQUIRE_AUTH=0
+ALLOW_ANON_SET=0
+REQUIRE_AUTH_SET=0
 TEMP_ROOT=''
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -43,6 +46,8 @@ Options:
   --skip-catalog-update      Do not refresh the installed-skill index
   --expected-sha256 HASH     Verify the downloaded tarball digest
   --require-pinned-ref       Fail when --ref is omitted
+  --require-auth             Require gh CLI authentication; disable anonymous fallback
+  --allow-anonymous-fallback Allow curl anonymous download if gh is not authenticated (default)
 USAGE
 }
 
@@ -210,6 +215,8 @@ while [[ $# -gt 0 ]]; do
         --skip-memory)       SKIP_MEMORY=1; shift ;;
         --skip-catalog-update) SKIP_CATALOG=1; shift ;;
         --expected-sha256)   [[ $# -ge 2 ]] || fail '--expected-sha256 needs a value'; EXPECTED_SHA256="$2"; shift 2 ;;
+        --require-auth)              REQUIRE_AUTH=1; REQUIRE_AUTH_SET=1; shift ;;
+        --allow-anonymous-fallback)  ALLOW_ANON_SET=1; shift ;;
         --require-pinned-ref) REQUIRE_PINNED=1; shift ;;
         -h|--help)           usage; exit 0 ;;
         */*)                 [[ -z "$REPO" ]] || fail "unknown argument: $1"; REPO="$1"; shift ;;
@@ -221,6 +228,9 @@ done
 [[ -z "$REF" || -n "$REPO" ]] || fail '--ref can only be used with a GitHub repository'
 [[ -z "$EXPECTED_SHA256" || -n "$REPO" ]] || fail '--expected-sha256 can only be used with a GitHub repository'
 [[ "$REQUIRE_PINNED" -eq 0 || -n "$REPO" ]] || fail '--require-pinned-ref can only be used with a GitHub repository'
+[[ "$REQUIRE_AUTH_SET" -eq 0 || "$ALLOW_ANON_SET" -eq 0 ]] || fail 'use either --require-auth or --allow-anonymous-fallback, not both'
+[[ "$REQUIRE_AUTH_SET" -eq 0 || -n "$REPO" ]] || fail '--require-auth can only be used with a GitHub repository'
+[[ "$ALLOW_ANON_SET" -eq 0 || -n "$REPO" ]] || fail '--allow-anonymous-fallback can only be used with a GitHub repository'
 [[ "$RUN_SMOKE" -eq 0 || "$SKIP_SMOKE" -eq 0 ]] || fail 'use either --run-smoke-test or --skip-smoke-test, not both'
 [[ "$UPDATE_MEMORY" -eq 0 || "$SKIP_MEMORY" -eq 0 ]] || fail 'use either --update-memory or --skip-memory, not both'
 [[ "$REQUIRE_PINNED" -eq 0 || -n "$REF" ]] || fail '--require-pinned-ref needs --ref'
@@ -246,10 +256,21 @@ assert_child_path "$SKILLS_DIR" "$SOURCE_PATH" 'source path'
 assert_child_path "$LINK_BASE" "$LINK_PATH" 'link path'
 
 step 1 'Pre-flight and input validation'
-if [[ "$MODE" == 'GitHub' && "$DRY_RUN" -eq 0 ]]; then
-    command -v gh >/dev/null 2>&1 || fail 'gh CLI not found; install it and run gh auth login'
-    gh auth status >/dev/null 2>&1 || fail 'gh is not authenticated; run gh auth login'
-    ok 'gh authenticated'
+USE_ANONYMOUS=0
+if [[ "$MODE" == 'GitHub' ]]; then
+    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+        ok 'gh authenticated'
+    else
+        if [[ "$REQUIRE_AUTH" -eq 1 ]]; then
+            command -v gh >/dev/null 2>&1 || fail 'gh CLI not found; install it and run gh auth login (or omit --require-auth for public repositories)'
+            fail 'gh is not authenticated; run gh auth login (or omit --require-auth for public repositories)'
+        fi
+        if [[ "$DRY_RUN" -eq 0 ]]; then
+            command -v curl >/dev/null 2>&1 || fail 'neither gh (authenticated) nor curl was found for GitHub downloads'
+        fi
+        USE_ANONYMOUS=1
+        ok 'gh not authenticated; using anonymous public repository fallback'
+    fi
 else
     ok "mode = $MODE; no GitHub authentication required"
 fi
@@ -300,23 +321,33 @@ if [[ "$LINK_ONLY" -eq 0 ]]; then
         ok "staged local source: $LOCAL_PATH"
     else
         TARBALL="$TEMP_ROOT/source.tar.gz"
-        API="repos/$REPO/tarball"
-        [[ -n "$REF" ]] && API="$API/$REF"
-        gh api "$API" > "$TARBALL" || fail 'gh api download failed'
+        COMMIT_REF="${REF:-HEAD}"
+        if [[ "$USE_ANONYMOUS" -eq 0 ]]; then
+            API="repos/$REPO/tarball"
+            [[ -n "$REF" ]] && API="$API/$REF"
+            gh api "$API" > "$TARBALL" || fail 'gh api download failed'
+            RESOLVED_COMMIT="$(gh api "repos/$REPO/commits/$COMMIT_REF" --jq '.sha')" || fail 'could not resolve ref to a commit SHA via gh api'
+        else
+            TARBALL_URL="https://api.github.com/repos/$REPO/tarball"
+            [[ -n "$REF" ]] && TARBALL_URL="$TARBALL_URL/$REF"
+            curl -fL -s -S -H "User-Agent: skill-installer" -H "Accept: application/vnd.github+json" "$TARBALL_URL" -o "$TARBALL" || fail "anonymous download failed from $TARBALL_URL; repository may be private (requires gh auth login) or rate-limited"
+            COMMIT_URL="https://api.github.com/repos/$REPO/commits/$COMMIT_REF"
+            COMMIT_JSON="$(curl -fL -s -S -H "User-Agent: skill-installer" -H "Accept: application/vnd.github+json" "$COMMIT_URL")" || fail "could not fetch commit information from $COMMIT_URL; repository may be private or rate-limited"
+            RESOLVED_COMMIT="$(python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('sha',''))" <<< "$COMMIT_JSON" 2>/dev/null || python -c "import sys, json; data=json.load(sys.stdin); print(data.get('sha',''))" <<< "$COMMIT_JSON" 2>/dev/null || grep -o '"sha": *"[^"]*"' <<< "$COMMIT_JSON" | head -n 1 | cut -d'"' -f4)"
+        fi
+
+        [[ "$RESOLVED_COMMIT" =~ ^[A-Fa-f0-9]{40}$ ]] || fail 'could not resolve ref to a 40-character commit SHA'
         ACTUAL_HASH="$(sha256_file "$TARBALL")"
         if [[ -n "$EXPECTED_SHA256" && "$ACTUAL_HASH" != "${EXPECTED_SHA256^^}" ]]; then
             fail "tarball SHA256 mismatch; expected $EXPECTED_SHA256, got $ACTUAL_HASH"
         fi
-        COMMIT_REF="${REF:-HEAD}"
-        RESOLVED_COMMIT="$(gh api "repos/$REPO/commits/$COMMIT_REF" --jq '.sha')" || fail 'could not resolve ref to a commit SHA'
-        [[ "$RESOLVED_COMMIT" =~ ^[A-Fa-f0-9]{40}$ ]] || fail 'GitHub returned an invalid commit SHA'
         EXTRACT_DIR="$TEMP_ROOT/extract"
         mkdir -p "$EXTRACT_DIR"
         tar -xzf "$TARBALL" -C "$EXTRACT_DIR" || fail 'tar extraction failed'
         INNER="$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | head -n 1 || true)"
         [[ -n "$INNER" ]] || fail 'unexpected GitHub tarball layout'
         copy_contents "$INNER" "$STAGE_PATH"
-        ok "downloaded $REPO at commit $RESOLVED_COMMIT"
+        ok "downloaded $REPO at commit $RESOLVED_COMMIT $([[ "$USE_ANONYMOUS" -eq 1 ]] && echo '(anonymous fallback)' || echo '(gh authenticated)')"
         ok "tarball SHA256 = $ACTUAL_HASH"
     fi
 
