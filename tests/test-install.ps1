@@ -131,15 +131,36 @@ try {
     Assert-True ($agentAntigravity.ExitCode -eq 0) "Agent antigravity should succeed. Output: $($agentAntigravity.Output)"
 
     $agentCodex = Invoke-Installer @('-LocalPath', $fixture, '-Name', 'minimal-skill', '-Agent', 'codex', '-DryRun')
-    Assert-True ($agentCodex.ExitCode -ne 0) 'Agent codex should fail with stub error'
-    Assert-True ($agentCodex.Output -match 'not-yet-implemented: see adapters/codex/stub-note.md') 'Agent codex should mention stub note'
+    Assert-True ($agentCodex.ExitCode -eq 0) "Agent codex dry-run should succeed. Output: $($agentCodex.Output)"
+    Assert-True ($agentCodex.Output -match 'DRY RUN') 'Agent codex dry-run should be explicit'
+
+    $subdirTraversal = Invoke-Installer @('-Repo', 'owner/repo', '-Subdir', '..\escape', '-Agent', 'codex', '-DryRun')
+    Assert-True ($subdirTraversal.ExitCode -ne 0) 'Codex --subdir traversal must be rejected before download'
+    Assert-True ($subdirTraversal.Output -match 'subdir|traversal|invalid') 'subdir traversal failure must be explicit'
+
+    $subdirLocal = Invoke-Installer @('-LocalPath', $fixture, '-Subdir', 'skills\minimal-skill', '-Agent', 'codex', '-DryRun')
+    Assert-True ($subdirLocal.ExitCode -ne 0) 'Codex --subdir must only be accepted for downloaded repositories'
+
+    $subdirDrive = Invoke-Installer @('-Repo', 'owner/repo', '-Subdir', 'C:\escape', '-Agent', 'codex', '-DryRun')
+    Assert-True ($subdirDrive.ExitCode -ne 0) 'Codex drive-qualified --subdir must be rejected'
+
+    $oldCodexHome = $env:SKILL_MANAGER_CODEX_HOME
+    $oldCodexUserHome = $env:SKILL_MANAGER_CODEX_USER_HOME
+    try {
+        $env:SKILL_MANAGER_CODEX_HOME = (Join-Path $sandbox 'codex-home')
+        $env:SKILL_MANAGER_CODEX_USER_HOME = (Join-Path $sandbox 'codex-user')
+        $protected = Invoke-Installer @('-LocalPath', $fixture, '-Name', '.system', '-Agent', 'codex', '-Scope', 'codex-home', '-Force', '-DryRun')
+        Assert-True ($protected.ExitCode -ne 0) 'Codex system root must reject force installs'
+    } finally {
+        $env:SKILL_MANAGER_CODEX_HOME = $oldCodexHome
+        $env:SKILL_MANAGER_CODEX_USER_HOME = $oldCodexUserHome
+    }
 
     $oldSkillsAgent = $env:CLAUDE_SKILLS_AGENT
     try {
         $env:CLAUDE_SKILLS_AGENT = 'codex'
         $agentCodexEnv = Invoke-Installer @('-LocalPath', $fixture, '-Name', 'minimal-skill', '-DryRun')
-        Assert-True ($agentCodexEnv.ExitCode -ne 0) 'CLAUDE_SKILLS_AGENT=codex should fail with stub error'
-        Assert-True ($agentCodexEnv.Output -match 'not-yet-implemented: see adapters/codex/stub-note.md') 'Agent codex should mention stub note'
+        Assert-True ($agentCodexEnv.ExitCode -eq 0) 'CLAUDE_SKILLS_AGENT=codex should support dry-run'
     } finally {
         $env:CLAUDE_SKILLS_AGENT = $oldSkillsAgent
     }

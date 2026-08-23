@@ -8,6 +8,10 @@ trap 'rm -rf "$SANDBOX"' EXIT
 
 export CLAUDE_SKILLS_DIR="$SANDBOX/sources"
 export CLAUDE_SKILLS_LINK_DIR="$SANDBOX/links"
+export SKILL_MANAGER_CODEX_HOME="$SANDBOX/codex-home"
+export SKILL_MANAGER_CODEX_USER_HOME="$SANDBOX/codex-user"
+export SKILL_MANAGER_CODEX_CWD="$SANDBOX"
+export SKILL_MANAGER_CODEX_INDEX_PATH="$SANDBOX/codex-index.json"
 mkdir -p "$CLAUDE_SKILLS_DIR" "$CLAUDE_SKILLS_LINK_DIR/image-skill" "$CLAUDE_SKILLS_LINK_DIR/slides-skill"
 mkdir -p "$CLAUDE_SKILLS_LINK_DIR/document-skill" "$CLAUDE_SKILLS_LINK_DIR/broken-skill"
 mkdir -p "$CLAUDE_SKILLS_LINK_DIR/multiline-skill"
@@ -267,9 +271,9 @@ caps_claude="$(bash "$CATALOG" --capabilities --agent claude)"
 caps_codex="$(bash "$CATALOG" --capabilities --agent codex)"
 [[ "$caps_codex" =~ "No visible skills for agent 'codex'" ]]
 
-# C. All-agents flag with stub agent
+# C. Isolated Codex roots do not borrow Claude entries.
 caps_all="$(bash "$CATALOG" --capabilities --agent codex --all-agents)"
-[[ "$caps_all" =~ "Development" ]]
+[[ ! "$caps_all" =~ "Development" ]]
 
 # D. CLAUDE_SKILLS_AGENT=codex environment variable
 caps_codex_env="$(CLAUDE_SKILLS_AGENT=codex bash "$CATALOG" --capabilities)"

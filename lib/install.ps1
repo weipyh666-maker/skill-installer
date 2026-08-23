@@ -24,6 +24,9 @@ param(
     [switch]$SkipCatalogUpdate,
     [string]$ExpectedSha256,
     [string]$Agent,
+    [ValidateSet('user', 'codex-home')]
+    [string]$Scope = 'user',
+    [string]$Subdir,
     [switch]$RequirePinnedRef,
     [switch]$RequireAuth,
     [switch]$AllowAnonymousFallback
@@ -35,6 +38,8 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\..\adapters\claude\detect.ps1"
 . "$PSScriptRoot\..\adapters\antigravity\paths.ps1"
 . "$PSScriptRoot\..\adapters\antigravity\detect.ps1"
+. "$PSScriptRoot\..\adapters\codex\paths.ps1"
+. "$PSScriptRoot\..\adapters\codex\detect.ps1"
 $IsWindowsHost = $env:OS -eq 'Windows_NT'
 $TempRoot = $null
 $Mode = $null
@@ -151,6 +156,16 @@ function Backup-Existing([string]$Path, [string]$Label, [string]$BackupRoot, [st
     return $destination
 }
 
+function Assert-ValidSubdir([string]$Value) {
+    if (-not $Value -or [IO.Path]::IsPathRooted($Value) -or $Value -match '^[A-Za-z]:' -or ($Value -split '[\\/]' | Where-Object { $_ -eq '..' -or $_ -eq '' })) {
+        Fail 'Invalid subdir: use a non-empty relative path without traversal.'
+    }
+}
+
+function Test-CodexProtectedTarget([string]$Path) {
+    return (Test-CodexProtectedPath $Path)
+}
+
 function Invoke-GhApiBinary([string]$ApiPath, [string]$OutputPath, [string]$ErrorPath) {
     $ghPath = (Get-Command gh -ErrorAction Stop).Source
     $process = Start-Process -FilePath $ghPath -ArgumentList @('api', $ApiPath) -RedirectStandardOutput $OutputPath -RedirectStandardError $ErrorPath -Wait -PassThru -NoNewWindow
@@ -244,6 +259,10 @@ try {
     if ($Repo) { Assert-ValidRepo $Repo }
     if ($Ref) { Assert-ValidRef $Ref }
     Assert-ValidHash $ExpectedSha256
+    if ($Subdir) {
+        if (-not $Repo) { Fail '-Subdir is supported only with a downloaded GitHub repository.' }
+        Assert-ValidSubdir $Subdir
+    }
 
     if (-not $Name) {
         if ($Repo) { $Name = ($Repo -split '/')[-1] }
@@ -255,11 +274,14 @@ try {
     if (-not (Test-ValidAgentName $resolvedAgent)) {
         Fail "Unknown agent '$resolvedAgent'. Supported agents: $($global:SupportedAgents -join ', ')"
     }
+    $BackupRoot = $null
     if ($resolvedAgent -eq 'codex') {
-        Fail "not-yet-implemented: see adapters/codex/stub-note.md"
-    }
-
-    if ($resolvedAgent -eq 'antigravity') {
+        if ($LinkOnly) { Fail 'Codex uses direct discovery roots and does not support LinkOnly.' }
+        $SkillsDir = if ($Scope -eq 'codex-home') { Get-CodexCompatibilitySkillRoot } else { Get-CodexUserSkillRoot }
+        $LinkBase = $SkillsDir
+        $BuiltinDir = Get-CodexSystemSkillRoot
+        $BackupRoot = Join-Path (Get-CodexHome) 'skill-manager\backups'
+    } elseif ($resolvedAgent -eq 'antigravity') {
         $SkillsDir = Get-AntigravitySourceDir
         $LinkBase = Get-AntigravityLinkDir
         $BuiltinDir = Get-AntigravityBuiltinDir
@@ -273,6 +295,8 @@ try {
     $LinkPath = Join-Path $LinkBase $Name
     Assert-ChildPath $SkillsDir $SourcePath 'Source path'
     Assert-ChildPath $LinkBase $LinkPath 'Link path'
+
+    if ($resolvedAgent -eq 'codex' -and (Test-CodexProtectedTarget $SourcePath)) { Fail 'Refusing to modify protected Codex SYSTEM Skill.' }
 
     if ($BuiltinDir -and (Test-Path -LiteralPath $BuiltinDir)) {
         $builtinFull = (Get-FullPath $BuiltinDir).TrimEnd('\')
@@ -404,15 +428,31 @@ try {
             if ($LASTEXITCODE -ne 0) { Fail 'tar extraction failed.' }
             $inners = @(Get-ChildItem -LiteralPath $extractDir -Directory)
             if ($inners.Count -ne 1) { Fail 'Unexpected GitHub tarball layout.' }
-            Copy-DirectoryContents $inners[0].FullName $stagePath
+            $selectedSource = $inners[0].FullName
+            if ($Subdir) {
+                $selectedSource = Join-Path $selectedSource $Subdir
+                $selectedItem = Get-Item -LiteralPath $selectedSource -Force -ErrorAction Stop
+                if ($selectedItem.Attributes -band [IO.FileAttributes]::ReparsePoint) { Fail 'Selected subdir is a reparse point and is not allowed in an untrusted package.' }
+                $stageFull = (Resolve-Path -LiteralPath $inners[0].FullName -ErrorAction Stop).Path.TrimEnd('\\')
+                $selectedFull = (Resolve-Path -LiteralPath $selectedSource -ErrorAction Stop).Path.TrimEnd('\\')
+                if ($selectedFull -eq $stageFull -or -not $selectedFull.StartsWith($stageFull + '\\', [StringComparison]::OrdinalIgnoreCase)) { Fail 'Selected subdir escapes the downloaded staging tree.' }
+                if (-not (Test-Path -LiteralPath $selectedSource -PathType Container)) { Fail "Selected subdir was not found in the downloaded repository: $Subdir" }
+            }
+            Copy-DirectoryContents $selectedSource $stagePath
             Write-Ok "downloaded $Repo at commit $ResolvedCommit $(if ($UseAnonymousGitHub) { '(anonymous fallback)' } else { '(gh authenticated)' })"
             Write-Ok "tarball SHA256 = $actualHash"
         }
 
         Assert-NoSensitiveFiles $stagePath
         Assert-SkillLayout $stagePath
+        if ($Subdir) {
+            $declaredName = ([regex]::Match((Get-Content -LiteralPath (Join-Path $stagePath 'SKILL.md') -Raw), '(?m)^name:\s*([^\r\n]+)')).Groups[1].Value.Trim().Trim('"').Trim("'")
+            $basename = Split-Path -Leaf ($Subdir.TrimEnd('\\','/'))
+            if ($declaredName -ne $basename -and -not $PSBoundParameters.ContainsKey('Name')) { Fail "Selected subdir basename '$basename' does not match SKILL.md name '$declaredName'. Pass -Name explicitly to acknowledge the mismatch." }
+            if ($declaredName -ne $basename) { Write-Warn "Selected subdir basename '$basename' differs from SKILL.md name '$declaredName'; using explicit name '$Name'." }
+        }
         if ($sourceExists) {
-            $backupRoot = Join-Path $SkillsDir '.backups'
+            $backupRoot = if ($BackupRoot) { $BackupRoot } else { Join-Path $SkillsDir '.backups' }
             $backup = Backup-Existing $SourcePath 'source' $backupRoot $Name
             Write-Ok "previous source backed up to $backup"
         }

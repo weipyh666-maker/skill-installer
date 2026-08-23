@@ -32,6 +32,10 @@ function New-TestSkill([string]$directory, [string]$name, [string]$description) 
 
 $oldSkillsDir = $env:CLAUDE_SKILLS_DIR
 $oldLinkDir = $env:CLAUDE_SKILLS_LINK_DIR
+$oldCodexHome = $env:SKILL_MANAGER_CODEX_HOME
+$oldCodexUserHome = $env:SKILL_MANAGER_CODEX_USER_HOME
+$oldCodexCwd = $env:SKILL_MANAGER_CODEX_CWD
+$oldCodexIndex = $env:SKILL_MANAGER_CODEX_INDEX_PATH
 try {
     New-Item -ItemType Directory -Path $linkRoot,$sourceRoot -Force | Out-Null
     New-TestSkill (Join-Path $linkRoot 'image-skill') 'image-skill' 'Use when identifying images, reading screenshots, or performing image understanding.'
@@ -42,6 +46,10 @@ try {
     $env:CLAUDE_SKILLS_LINK_DIR = $linkRoot
     $env:ANTIGRAVITY_SKILLS_DIR = (Join-Path $sandbox 'agy_sources')
     $env:ANTIGRAVITY_SKILLS_LINK_DIR = (Join-Path $sandbox 'agy_links')
+    $env:SKILL_MANAGER_CODEX_HOME = (Join-Path $sandbox 'codex-home')
+    $env:SKILL_MANAGER_CODEX_USER_HOME = (Join-Path $sandbox 'codex-user')
+    $env:SKILL_MANAGER_CODEX_CWD = $sandbox
+    $env:SKILL_MANAGER_CODEX_INDEX_PATH = (Join-Path $sandbox 'codex-index.json')
 
     $refresh = Invoke-Catalog @('-Command', 'refresh')
     Assert-True ($refresh.ExitCode -eq 0) "refresh should succeed: $($refresh.Output)"
@@ -232,9 +240,9 @@ try {
     $capsCodex = Invoke-Catalog @('-Command', 'capabilities', '-Agent', 'codex')
     Assert-True ($capsCodex.Output -match "No visible skills for agent 'codex'") 'agent codex should report 0 visible skills'
 
-    # C. All-agents flag with stub agent
+    # C. Isolated Codex roots remain empty even with all-agents requested.
     $capsAll = Invoke-Catalog @('-Command', 'capabilities', '-Agent', 'codex', '-AllAgents')
-    Assert-True ($capsAll.Output -match 'Development') 'all-agents should see development category'
+    Assert-True ($capsAll.Output -notmatch 'Development') 'isolated Codex catalog must not borrow Claude entries'
 
     # D. CLAUDE_SKILLS_AGENT=codex environment variable
     $oldAgentVar = $env:CLAUDE_SKILLS_AGENT
@@ -296,5 +304,9 @@ try {
 finally {
     $env:CLAUDE_SKILLS_DIR = $oldSkillsDir
     $env:CLAUDE_SKILLS_LINK_DIR = $oldLinkDir
+    $env:SKILL_MANAGER_CODEX_HOME = $oldCodexHome
+    $env:SKILL_MANAGER_CODEX_USER_HOME = $oldCodexUserHome
+    $env:SKILL_MANAGER_CODEX_CWD = $oldCodexCwd
+    $env:SKILL_MANAGER_CODEX_INDEX_PATH = $oldCodexIndex
     if (Test-Path -LiteralPath $sandbox) { Remove-Item -LiteralPath $sandbox -Recurse -Force }
 }

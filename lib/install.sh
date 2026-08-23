@@ -11,6 +11,7 @@ REPO=''
 REF=''
 LOCAL_PATH=''
 NAME=''
+NAME_WAS_EXPLICIT=0
 LINK_ONLY=0
 FORCE=0
 DRY_RUN=0
@@ -26,12 +27,16 @@ ALLOW_ANON_SET=0
 REQUIRE_AUTH_SET=0
 TEMP_ROOT=''
 AGENT=''
+SCOPE='user'
+SUBDIR=''
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../adapters/_base.sh"
 source "$SCRIPT_DIR/../adapters/claude/paths.sh"
 source "$SCRIPT_DIR/../adapters/claude/detect.sh"
 source "$SCRIPT_DIR/../adapters/antigravity/paths.sh"
 source "$SCRIPT_DIR/../adapters/antigravity/detect.sh"
+source "$SCRIPT_DIR/../adapters/codex/paths.sh"
+source "$SCRIPT_DIR/../adapters/codex/detect.sh"
 
 usage() {
     sed -n '1,35p' "$0"
@@ -68,22 +73,26 @@ ok() { printf '  + %s\n' "$1"; }
 warn() { printf '  ! %s\n' "$1" >&2; }
 
 canonical_path() {
+    if command -v readlink >/dev/null 2>&1 && readlink -f -- "$1" >/dev/null 2>&1; then
+        readlink -f -- "$1"
+        return
+    fi
+    if command -v realpath >/dev/null 2>&1 && realpath -m -- . >/dev/null 2>&1; then
+        realpath -m -- "$1"
+        return
+    fi
     if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys' >/dev/null 2>&1; then
         python3 - "$1" <<'PY'
 import os, sys
-print(os.path.abspath(os.path.expanduser(sys.argv[1])).replace('\\', '/'))
+print(os.path.realpath(os.path.expanduser(sys.argv[1])).replace('\\', '/'))
 PY
         return
     fi
     if command -v python >/dev/null 2>&1 && python -c 'import sys' >/dev/null 2>&1; then
         python - "$1" <<'PY'
 import os, sys
-print(os.path.abspath(os.path.expanduser(sys.argv[1])).replace('\\', '/'))
+print(os.path.realpath(os.path.expanduser(sys.argv[1])).replace('\\', '/'))
 PY
-        return
-    fi
-    if command -v realpath >/dev/null 2>&1 && realpath -m -s -- . >/dev/null 2>&1; then
-        realpath -m -s -- "$1"
         return
     fi
     fail 'python3, python or realpath is required for safe path validation'
@@ -187,6 +196,18 @@ create_install_link() {
     fi
 }
 
+codex_protected_target() {
+    [[ "$AGENT" == 'codex' ]] || return 1
+    local candidate protected
+    candidate="$(canonical_path "$1")"
+    for protected in "$(get_codex_system_skill_root)" "$(get_codex_admin_skill_root || true)"; do
+        [[ -n "$protected" ]] || continue
+        protected="$(canonical_path "$protected")"
+        [[ "$candidate" == "$protected" || "$candidate" == "$protected/"* ]] && return 0
+    done
+    return 1
+}
+
 sha256_file() {
     if command -v sha256sum >/dev/null 2>&1; then
         sha256sum "$1" | awk '{print toupper($1)}'
@@ -212,8 +233,10 @@ while [[ $# -gt 0 ]]; do
         --repo)              [[ $# -ge 2 ]] || fail '--repo needs owner/name'; REPO="$2"; shift 2 ;;
         --ref)               [[ $# -ge 2 ]] || fail '--ref needs a value'; REF="$2"; shift 2 ;;
         --local)             [[ $# -ge 2 ]] || fail '--local needs a directory'; LOCAL_PATH="$2"; shift 2 ;;
-        --name)              [[ $# -ge 2 ]] || fail '--name needs a value'; NAME="$2"; shift 2 ;;
+        --name)              [[ $# -ge 2 ]] || fail '--name needs a value'; NAME="$2"; NAME_WAS_EXPLICIT=1; shift 2 ;;
         --agent)             [[ $# -ge 2 ]] || fail '--agent needs a value'; AGENT="$2"; shift 2 ;;
+        --scope)             [[ $# -ge 2 ]] || fail '--scope needs user or codex-home'; SCOPE="$2"; shift 2 ;;
+        --subdir)            [[ $# -ge 2 ]] || fail '--subdir needs a staging-tree path'; SUBDIR="$2"; shift 2 ;;
         --link-only)         LINK_ONLY=1; shift ;;
         --force)             FORCE=1; shift ;;
         --dry-run)           DRY_RUN=1; shift ;;
@@ -250,6 +273,10 @@ MODE='Local'
 [[ -n "$REPO" ]] && assert_safe_repo "$REPO"
 [[ -n "$REF" ]] && assert_safe_ref "$REF"
 assert_safe_hash "$EXPECTED_SHA256"
+if [[ -n "$SUBDIR" ]]; then
+    [[ -n "$REPO" ]] || fail '--subdir is supported only with a downloaded GitHub repository'
+    [[ "$SUBDIR" != /* && ! "$SUBDIR" =~ ^[A-Za-z]: && "$SUBDIR" != *'..'* && "$SUBDIR" != *'\\'* && -n "$SUBDIR" ]] || fail 'invalid subdir: use a non-empty relative path without traversal'
+fi
 
 if [[ -z "$NAME" ]]; then
     if [[ -n "$REPO" ]]; then NAME="${REPO##*/}"; else NAME="$(basename "$(canonical_path "$LOCAL_PATH")")"; fi
@@ -258,12 +285,15 @@ assert_safe_name "$NAME"
 
 AGENT="$(resolve_agent "$AGENT")"
 validate_agent "$AGENT" || exit 1
+BACKUP_ROOT=''
 if [[ "$AGENT" == "codex" ]]; then
-    echo "not-yet-implemented: see adapters/codex/stub-note.md" >&2
-    exit 1
-fi
-
-if [[ "$AGENT" == "antigravity" ]]; then
+    [[ "$LINK_ONLY" -eq 0 ]] || fail 'Codex uses direct discovery roots and does not support --link-only'
+    [[ "$SCOPE" == 'user' || "$SCOPE" == 'codex-home' ]] || fail '--scope must be user or codex-home for Codex'
+    if [[ "$SCOPE" == 'codex-home' ]]; then SKILLS_DIR="$(get_codex_compatibility_skill_root)"; else SKILLS_DIR="$(get_codex_user_skill_root)"; fi
+    LINK_BASE="$SKILLS_DIR"
+    BUILTIN_DIR="$(get_codex_system_skill_root)"
+    BACKUP_ROOT="$(get_codex_home)/skill-manager/backups"
+elif [[ "$AGENT" == "antigravity" ]]; then
     SKILLS_DIR="$(get_antigravity_source_dir)"
     LINK_BASE="$(get_antigravity_link_dir)"
     BUILTIN_DIR="$(get_antigravity_builtin_dir)"
@@ -276,7 +306,13 @@ fi
 SOURCE_PATH="$SKILLS_DIR/$NAME"
 LINK_PATH="$LINK_BASE/$NAME"
 
-if [[ -n "$BUILTIN_DIR" && -d "$BUILTIN_DIR" ]]; then
+if [[ "$AGENT" == "codex" ]]; then
+    target_full="$(canonical_path "$SOURCE_PATH")"
+    system_full="$(canonical_path "$BUILTIN_DIR")"
+    if [[ "$target_full" == "$system_full" || "$target_full" == "$system_full/"* ]]; then
+        fail "Refusing to modify protected Codex SYSTEM Skill."
+    fi
+elif [[ -n "$BUILTIN_DIR" && -d "$BUILTIN_DIR" ]]; then
     target_full="$(canonical_path "$SOURCE_PATH")"
     builtin_full="$(canonical_path "$BUILTIN_DIR")"
     if [[ "$target_full" == "$builtin_full"* ]]; then
@@ -285,6 +321,7 @@ if [[ -n "$BUILTIN_DIR" && -d "$BUILTIN_DIR" ]]; then
 fi
 assert_child_path "$SKILLS_DIR" "$SOURCE_PATH" 'source path'
 assert_child_path "$LINK_BASE" "$LINK_PATH" 'link path'
+codex_protected_target "$SOURCE_PATH" && fail 'Refusing to modify protected Codex SYSTEM/Admin Skill.'
 
 step 1 'Pre-flight and input validation'
 USE_ANONYMOUS=0
@@ -377,15 +414,29 @@ if [[ "$LINK_ONLY" -eq 0 ]]; then
         tar -xzf "$TARBALL" -C "$EXTRACT_DIR" || fail 'tar extraction failed'
         INNER="$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | head -n 1 || true)"
         [[ -n "$INNER" ]] || fail 'unexpected GitHub tarball layout'
-        copy_contents "$INNER" "$STAGE_PATH"
+        SELECTED_SOURCE="$INNER"
+        if [[ -n "$SUBDIR" ]]; then
+            SELECTED_SOURCE="$INNER/$SUBDIR"
+            inner_full="$(canonical_path "$INNER")"
+            selected_full="$(canonical_path "$SELECTED_SOURCE")"
+            [[ "$selected_full" == "$inner_full/"* ]] || fail 'selected subdir escapes the downloaded staging tree'
+            [[ -d "$SELECTED_SOURCE" ]] || fail "selected subdir was not found in the downloaded repository: $SUBDIR"
+        fi
+        copy_contents "$SELECTED_SOURCE" "$STAGE_PATH"
         ok "downloaded $REPO at commit $RESOLVED_COMMIT $([[ "$USE_ANONYMOUS" -eq 1 ]] && echo '(anonymous fallback)' || echo '(gh authenticated)')"
         ok "tarball SHA256 = $ACTUAL_HASH"
     fi
 
     assert_no_sensitive_files "$STAGE_PATH"
     assert_skill_layout "$STAGE_PATH"
+    if [[ -n "$SUBDIR" ]]; then
+        declared_name="$(grep -E '^name:' "$STAGE_PATH/SKILL.md" | head -n 1 | cut -d: -f2- | xargs)"
+        subdir_basename="${SUBDIR##*/}"
+        if [[ "$declared_name" != "$subdir_basename" && "$NAME_WAS_EXPLICIT" -eq 0 ]]; then fail "selected subdir basename '$subdir_basename' does not match SKILL.md name '$declared_name'; pass --name explicitly to acknowledge the mismatch"; fi
+        [[ "$declared_name" == "$subdir_basename" ]] || warn "selected subdir basename '$subdir_basename' differs from SKILL.md name '$declared_name'; using explicit name '$NAME'"
+    fi
     if [[ "$source_exists" -eq 1 ]]; then
-        BACKUP_ROOT="$SKILLS_DIR/.backups"
+        [[ -n "$BACKUP_ROOT" ]] || BACKUP_ROOT="$SKILLS_DIR/.backups"
         BACKUP="$(backup_existing "$SOURCE_PATH" source "$BACKUP_ROOT" "$NAME")"
         ok "previous source backed up to $BACKUP"
     fi

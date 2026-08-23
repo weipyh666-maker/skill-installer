@@ -216,20 +216,63 @@ set +e
 agent_codex_out="$(bash "$INSTALLER" --local "$FIXTURE" --name minimal-skill --agent codex --dry-run 2>&1)"
 agent_codex_status=$?
 set -e
-[[ "$agent_codex_status" -ne 0 ]] || {
-    echo "ASSERTION FAILED: --agent codex should fail with stub error" >&2
+[[ "$agent_codex_status" -eq 0 ]] || {
+    echo "ASSERTION FAILED: --agent codex dry-run should succeed: $agent_codex_out" >&2
     exit 1
 }
-assert_contains "$agent_codex_out" "not-yet-implemented: see adapters/codex/stub-note.md"
+assert_contains "$agent_codex_out" "DRY RUN"
+
+set +e
+subdir_traversal_out="$(bash "$INSTALLER" --repo owner/repo --subdir ../escape --agent codex --dry-run 2>&1)"
+subdir_traversal_status=$?
+set -e
+[[ "$subdir_traversal_status" -ne 0 ]] || { echo 'ASSERTION FAILED: Codex --subdir traversal was accepted' >&2; exit 1; }
+
+set +e
+subdir_local_out="$(bash "$INSTALLER" --local "$FIXTURE" --subdir skills/minimal-skill --agent codex --dry-run 2>&1)"
+subdir_local_status=$?
+set -e
+[[ "$subdir_local_status" -ne 0 ]] || { echo 'ASSERTION FAILED: Codex --subdir was accepted for local input' >&2; exit 1; }
+
+set +e
+subdir_drive_out="$(bash "$INSTALLER" --repo owner/repo --subdir C:/escape --agent codex --dry-run 2>&1)"
+subdir_drive_status=$?
+set -e
+[[ "$subdir_drive_status" -ne 0 ]] || { echo 'ASSERTION FAILED: Codex drive-qualified --subdir was accepted' >&2; exit 1; }
+
+set +e
+protected_out="$(SKILL_MANAGER_CODEX_HOME="$SANDBOX/codex-home" SKILL_MANAGER_CODEX_USER_HOME="$SANDBOX/codex-user" bash "$INSTALLER" --local "$FIXTURE" --name .system --agent codex --scope codex-home --force --dry-run 2>&1)"
+protected_status=$?
+set -e
+[[ "$protected_status" -ne 0 ]] || { echo 'ASSERTION FAILED: Codex system root force install was accepted' >&2; exit 1; }
+
+admin_root="$SANDBOX/admin-root"
+admin_user_home="$SANDBOX/admin-user-home"
+mkdir -p "$admin_root/child" "$admin_user_home/.agents"
+set +e
+direct_admin_out="$(SKILL_MANAGER_CODEX_HOME="$SANDBOX/admin-codex-home" SKILL_MANAGER_CODEX_USER_HOME="$admin_user_home" SKILL_MANAGER_CODEX_USER_ROOT="$admin_root" SKILL_MANAGER_CODEX_ADMIN_ROOT="$admin_root" bash "$INSTALLER" --local "$FIXTURE" --name child --agent codex --force --dry-run 2>&1)"
+direct_admin_status=$?
+set -e
+[[ "$direct_admin_status" -ne 0 ]] || { echo 'ASSERTION FAILED: direct admin child accepted' >&2; exit 1; }
+if ln -s "$admin_root" "$admin_user_home/.agents/skills" 2>/dev/null && [[ -L "$admin_user_home/.agents/skills" ]]; then
+    set +e
+    admin_out="$(SKILL_MANAGER_CODEX_HOME="$SANDBOX/admin-codex-home" SKILL_MANAGER_CODEX_USER_HOME="$admin_user_home" SKILL_MANAGER_CODEX_ADMIN_ROOT="$admin_root" bash "$INSTALLER" --local "$FIXTURE" --name child --agent codex --force --dry-run 2>&1)"
+    admin_status=$?
+    set -e
+    [[ "$admin_status" -ne 0 ]] || { echo 'ASSERTION FAILED: symlink-resolved admin child accepted' >&2; exit 1; }
+    assert_contains "$admin_out" "protected Codex SYSTEM/Admin Skill"
+else
+    echo 'note: platform cannot create symlink for admin containment test; skipping capability test' >&2
+fi
 
 set +e
 agent_codex_env_out="$(CLAUDE_SKILLS_AGENT=codex bash "$INSTALLER" --local "$FIXTURE" --name minimal-skill --dry-run 2>&1)"
 agent_codex_env_status=$?
 set -e
-[[ "$agent_codex_env_status" -ne 0 ]] || {
-    echo "ASSERTION FAILED: CLAUDE_SKILLS_AGENT=codex should fail with stub error" >&2
+[[ "$agent_codex_env_status" -eq 0 ]] || {
+    echo "ASSERTION FAILED: CLAUDE_SKILLS_AGENT=codex dry-run should succeed" >&2
     exit 1
 }
-assert_contains "$agent_codex_env_out" "not-yet-implemented: see adapters/codex/stub-note.md"
+assert_contains "$agent_codex_env_out" "DRY RUN"
 
 echo 'PASS: installer regression tests'

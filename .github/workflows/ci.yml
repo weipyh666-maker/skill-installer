@@ -39,6 +39,8 @@ jobs:
         run: bash tests/test-auto-trigger.sh
       - name: antigravity tests
         run: bash tests/test-antigravity.sh
+      - name: codex tests
+        run: bash tests/test-codex.sh
 
   powershell-tests:
     name: PowerShell (Windows)
@@ -58,6 +60,8 @@ jobs:
         run: pwsh -NoProfile -File tests/test-auto-trigger.ps1
       - name: antigravity tests
         run: pwsh -NoProfile -File tests/test-antigravity.ps1
+      - name: codex tests
+        run: pwsh -NoProfile -File tests/test-codex.ps1
 
   auto-trigger:
     name: Auto-trigger test (Bash)

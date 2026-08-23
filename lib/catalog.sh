@@ -46,6 +46,8 @@ source "$SCRIPT_DIR/../adapters/claude/paths.sh"
 source "$SCRIPT_DIR/../adapters/claude/detect.sh"
 source "$SCRIPT_DIR/../adapters/antigravity/paths.sh"
 source "$SCRIPT_DIR/../adapters/antigravity/detect.sh"
+source "$SCRIPT_DIR/../adapters/codex/paths.sh"
+source "$SCRIPT_DIR/../adapters/codex/detect.sh"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -117,7 +119,20 @@ antigravity_link_dir = Path(os.environ.get("ANTIGRAVITY_SKILLS_LINK_DIR", os.env
 antigravity_builtin_dir = Path(os.environ.get("ANTIGRAVITY_BUILTIN_DIR", str(home / ".gemini" / "antigravity-cli" / "builtin" / "skills"))).expanduser()
 antigravity_index_path = Path(os.environ.get("ANTIGRAVITY_SKILLS_INDEX_PATH", os.environ.get("SKILL_MANAGER_INDEX_PATH", str(antigravity_skills_dir / "installed-skills-index.json")))).expanduser()
 
-if selected_agent == "antigravity":
+codex_user_home = Path(os.environ.get("SKILL_MANAGER_CODEX_USER_HOME", str(home))).expanduser()
+codex_home = Path(os.environ.get("SKILL_MANAGER_CODEX_HOME", os.environ.get("CODEX_HOME", str(codex_user_home / ".codex")))).expanduser()
+codex_user_root = codex_user_home / ".agents" / "skills"
+codex_compatibility_root = codex_home / "skills"
+codex_system_root = codex_compatibility_root / ".system"
+codex_index_path = Path(os.environ.get("SKILL_MANAGER_CODEX_INDEX_PATH", str(codex_home / "skill-manager-catalog.json"))).expanduser()
+codex_cwd = Path(os.environ.get("SKILL_MANAGER_CODEX_CWD", os.getcwd())).expanduser()
+codex_plugin_root = os.environ.get("SKILL_MANAGER_CODEX_PLUGIN_ROOT")
+
+if selected_agent == "codex":
+    skills_dir = codex_user_root
+    link_dir = codex_compatibility_root
+    index_path = codex_index_path
+elif selected_agent == "antigravity":
     skills_dir = antigravity_skills_dir
     link_dir = antigravity_link_dir
     index_path = antigravity_index_path
@@ -557,7 +572,120 @@ def read_old_index():
         return None
     return None
 
+def codex_project_roots(start):
+    current = start.resolve()
+    repo_root = None
+    probe = current
+    while True:
+        if (probe / '.git').exists():
+            repo_root = probe
+            break
+        if probe.parent == probe:
+            break
+        probe = probe.parent
+    if repo_root is None:
+        return []
+    roots = []
+    while True:
+        candidate = current / '.agents' / 'skills'
+        if candidate.is_dir():
+            roots.append(candidate)
+        if current == repo_root:
+            break
+        current = current.parent
+    return roots
+
+def codex_root_records():
+    records = [
+        {'path': codex_user_root, 'scope': 'user', 'class': 'agents', 'protected': False},
+        {'path': codex_compatibility_root, 'scope': 'compatibility', 'class': 'compatibility', 'protected': False},
+        {'path': codex_system_root, 'scope': 'system', 'class': 'system', 'protected': True},
+    ]
+    records.extend({'path': p, 'scope': 'project', 'class': 'agents', 'protected': False} for p in codex_project_roots(codex_cwd))
+    if codex_plugin_root:
+        records.append({'path': Path(codex_plugin_root).expanduser(), 'scope': 'plugin', 'class': 'plugin-cache', 'protected': False})
+    elif (codex_home / 'plugins' / 'cache').is_dir():
+        records.append({'path': codex_home / 'plugins' / 'cache', 'scope': 'plugin', 'class': 'plugin-cache', 'protected': False})
+    if os.name != 'nt':
+        records.append({'path': Path('/etc/codex/skills'), 'scope': 'admin', 'class': 'admin', 'protected': True})
+    return records
+
+def codex_skill_config():
+    config_path = codex_home / 'config.toml'
+    entries = {}
+    if not config_path.is_file():
+        return entries
+    try:
+        raw = config_path.read_text(encoding='utf-8')
+    except Exception:
+        return entries
+    for match in re.finditer(r'(?ms)^\s*\[\[skills\.config\]\](.*?)(?=^\s*\[\[|\Z)', raw):
+        path_match = re.search(r'(?m)^\s*path\s*=\s*["\']([^"\']+)["\']', match.group(1))
+        if not path_match:
+            continue
+        enabled_match = re.search(r'(?mi)^\s*enabled\s*=\s*(true|false)', match.group(1))
+        path = str(Path(path_match.group(1)).expanduser().resolve())
+        entries[path.lower()] = {'path': path, 'enabled': not (enabled_match and enabled_match.group(1).lower() == 'false')}
+    return entries
+
+def build_codex_index():
+    grouped = {}
+    config_entries = codex_skill_config()
+    discovered_skill_paths = set()
+    for root_info in codex_root_records():
+        root_path = root_info['path']
+        if not root_path.is_dir():
+            continue
+        files = root_path.rglob('SKILL.md') if root_info['class'] == 'plugin-cache' else (child / 'SKILL.md' for child in root_path.iterdir() if child.is_dir() and not child.name.startswith('.'))
+        for skill_file in files:
+            if not skill_file.is_file():
+                continue
+            canonical_skill_path = str(skill_file.resolve())
+            discovered_skill_paths.add(canonical_skill_path.lower())
+            try:
+                raw = skill_file.read_text(encoding='utf-8')
+            except Exception:
+                raw = ''
+            match = re.search(r'(?ms)^---\s*\r?\n(.*?)\r?\n---', raw)
+            frontmatter = match.group(1) if match else ''
+            name = extract_frontmatter_field(frontmatter, 'name') or skill_file.parent.name
+            desc = extract_frontmatter_field(frontmatter, 'description')
+            category = infer_category(extract_frontmatter_field(frontmatter, 'category'), name, desc, derive_keywords(name, desc))
+            caps = get_top_capabilities(frontmatter, name, desc, category)
+            config_state = config_entries.get(canonical_skill_path.lower())
+            protected_roots = [codex_system_root.resolve()]
+            if os.name != 'nt': protected_roots.append(Path('/etc/codex/skills').resolve())
+            physical_dir = skill_file.parent.resolve()
+            is_protected = root_info['protected'] or any(physical_dir == root or root in physical_dir.parents for root in protected_roots)
+            variant = {'path': str(physical_dir), 'skill_path': canonical_skill_path, 'scope': root_info['scope'], 'class': root_info['class'], 'protected': is_protected, 'enabled': config_state['enabled'] if config_state else True, 'description': desc, 'category': category, 'capabilities': caps, 'frontmatter': frontmatter, 'sha256': hashlib.sha256(raw.encode('utf-8')).hexdigest()}
+            grouped.setdefault(name, []).append(variant)
+    entries = []
+    for name in sorted(grouped):
+        variants = sorted(grouped[name], key=lambda x: x['path'])
+        visible_variants = [v for v in variants if v['class'] != 'plugin-cache' and v['enabled']]
+        descriptions = list(dict.fromkeys(v['description'] for v in variants if v['description']))
+        categories = list(dict.fromkeys(v['category'] for v in variants))
+        capabilities = list(dict.fromkeys(cap for v in variants for cap in v['capabilities']))
+        duplicate = len(variants) > 1
+        if not visible_variants and any(not v['enabled'] for v in variants):
+            reason = 'disabled-by-codex-config'
+        elif not visible_variants:
+            reason = 'plugin-enablement-dependent'
+        elif duplicate:
+            reason = 'multiple-discovery-roots; precedence-unknown'
+        elif variants[0]['class'] == 'system':
+            reason = 'discovered-in-system-root'
+        else:
+            reason = f"discovered-in-{variants[0]['scope']}-root"
+        paths = [{key: variant[key] for key in ('path', 'skill_path', 'scope', 'class', 'protected', 'enabled')} for variant in variants]
+        agents = {'claude': {'visible': False, 'path': None, 'reason': 'not installed for claude'}, 'antigravity': {'visible': False, 'path': None, 'reason': 'not installed for antigravity'}, 'codex': {'visible': bool(visible_variants), 'reason': reason, 'paths': paths, 'scopes': list(dict.fromkeys(v['scope'] for v in variants)), 'protected': any(v['protected'] for v in variants), 'enabled': any(v['enabled'] for v in variants), 'duplicate': duplicate, 'precedence': 'unknown' if duplicate else None, 'metadata_conflict': len(set(v['frontmatter'] for v in variants)) > 1, 'variants': variants}}
+        entries.append({'name': name, 'install_name': name, 'description': ' | '.join(descriptions), 'capabilities': capabilities, 'category': categories[0] if len(categories) == 1 else 'other', 'source': 'codex-discovery', 'provenance': 'filesystem', 'source_path': paths[0]['path'], 'link_path': '', 'discovered_at': dt.datetime.now(dt.timezone.utc).isoformat(), 'installed_at': None, 'commit': None, 'sha256': None, 'status': 'ok' if len(variants) == len([v for v in variants if v['frontmatter']]) else 'broken', 'health': 'ok' if len(variants) == len([v for v in variants if v['frontmatter']]) else 'broken', 'agents': agents})
+    external = [{'path': entry['path'], 'enabled': entry['enabled'], 'status': 'unknown', 'reason': 'config-only-or-external-path'} for entry in config_entries.values() if entry['path'].lower() not in discovered_skill_paths]
+    return {'schema_version': 3, 'default_agent': 'codex', 'updated_at': dt.datetime.now(dt.timezone.utc).isoformat(), 'skills': entries, 'codex_config_external': external}
+
 def build_index():
+    if selected_agent == 'codex':
+        return build_codex_index()
     old_index = read_old_index()
     old_map = {}
     if old_index and isinstance(old_index.get("skills"), list):
@@ -1099,7 +1227,23 @@ def doctor_global(index_data):
     missing_list = [s for s in target_skills if s.get("health") == "missing"]
     healthy_count = max(0, scanned_count - len(broken_list) - len(missing_list))
 
-    if selected_agent == "antigravity":
+    if selected_agent == "codex":
+        duplicates = [s for s in target_skills if s.get('agents', {}).get('codex', {}).get('duplicate')]
+        print(f"doctor: scanned {scanned_count} skills for agent 'codex'")
+        print(f"  CLI resolved: {bool(os.environ.get('SKILL_MANAGER_CODEX_CLI_PATH') or shutil.which('codex'))}")
+        print('  CLI executable test: not-run')
+        print(f"  CODEX_HOME: {codex_home}")
+        print(f"  user root: {codex_user_root}")
+        print(f"  compatibility root: {codex_compatibility_root}")
+        print(f"  system root: {codex_system_root} (protected)")
+        print(f"  healthy: {healthy_count}")
+        for entry in duplicates:
+            print(f"  ⚠ Duplicate Codex Skill name: {entry['name']}")
+            for path in entry['agents']['codex']['paths']:
+                print(f"    - {path['path']} [{path['scope']}/{path['class']}]")
+            print('    Codex precedence is undocumented; skill-manager will not choose a winner.')
+        return
+    elif selected_agent == "antigravity":
         cli_detected = (shutil.which("antigravity") is not None or shutil.which("agy") is not None)
         skills_detected = antigravity_link_dir.is_dir()
         env_str = "CLI detected" if cli_detected else ("skills directory detected" if skills_detected else "not detected")
@@ -1441,8 +1585,19 @@ def build_fixed_frontmatter(original_frontmatter, new_desc, new_caps, new_cat):
 
 def fix_skill(entry, is_dry_run, confirm_yes):
     dir_name = entry.get("install_name", entry["name"])
-    source_disk = skills_dir / dir_name
-    link_disk = link_dir / dir_name
+    if selected_agent == 'codex':
+        codex_info = entry.get('agents', {}).get('codex', {})
+        paths = codex_info.get('paths', [])
+        if codex_info.get('protected') or any(path.get('protected') for path in paths):
+            raise SystemExit('Refusing to modify protected Codex SYSTEM Skill.')
+        writable = [path for path in paths if path.get('scope') == 'user' and path.get('class') == 'agents' and not path.get('protected')]
+        if len(writable) != 1:
+            raise SystemExit('Refusing to modify Codex Skill outside the single writable user root.')
+        source_disk = Path(writable[0]['path'])
+        link_disk = source_disk
+    else:
+        source_disk = skills_dir / dir_name
+        link_disk = link_dir / dir_name
     target_file = None
     target_disk = None
 
@@ -1526,7 +1681,7 @@ def fix_skill(entry, is_dry_run, confirm_yes):
             print(f"Skipped {entry['name']}.")
             return
 
-    backup_dir = skills_dir / ".backups"
+    backup_dir = (codex_home / 'skill-manager' / 'backups') if selected_agent == 'codex' else (skills_dir / '.backups')
     backup_dir.mkdir(parents=True, exist_ok=True)
     ts = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     backup_file = backup_dir / f"{entry['name']}-{ts}-SKILL.md"
@@ -1563,8 +1718,6 @@ try:
     index = load_index()
 
     if mode == "refresh":
-        if selected_agent == "codex":
-            raise SystemExit("not-yet-implemented: see adapters/codex/stub-note.md")
         index = build_index()
         index = apply_registration(index)
         write_index(index)
@@ -1636,17 +1789,12 @@ try:
             print(f"usage.status: {entry.get('usage', {}).get('status', 'unknown')}")
             print("invocation_hint: Ask Claude Code to use the named skill for a matching task. Automatic invocation is not observable by this catalog.")
     elif mode == "doctor":
-        if selected_agent == "codex" and not all_agents:
-            print("doctor: agent 'codex' is a stub adapter (not-yet-implemented). No skills installed.")
-            raise SystemExit(0)
         fresh = build_index()
         if requested_name:
             doctor_single(requested_name, fresh)
         else:
             doctor_global(fresh)
     elif mode == "fix":
-        if selected_agent == "codex":
-            raise SystemExit("not-yet-implemented: see adapters/codex/stub-note.md")
         fresh = build_index()
         if requested_name:
             entry = next((item for item in fresh.get("skills", []) if item["name"] == requested_name or item.get("install_name") == requested_name), None)

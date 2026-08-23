@@ -23,6 +23,8 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\..\adapters\claude\detect.ps1"
 . "$PSScriptRoot\..\adapters\antigravity\paths.ps1"
 . "$PSScriptRoot\..\adapters\antigravity\detect.ps1"
+. "$PSScriptRoot\..\adapters\codex\paths.ps1"
+. "$PSScriptRoot\..\adapters\codex\detect.ps1"
 . "$PSScriptRoot\..\core\search.ps1"
 . "$PSScriptRoot\..\core\doctor.ps1"
 
@@ -51,7 +53,11 @@ $AntigravityLinkDir = Get-AntigravityLinkDir
 $AntigravityBuiltinDir = Get-AntigravityBuiltinDir
 $AntigravityIndexPath = Get-AntigravityIndexPath
 
-if ($resolvedAgent -eq 'antigravity') {
+if ($resolvedAgent -eq 'codex') {
+    $SkillsDir = Get-FullPath (Get-CodexUserSkillRoot)
+    $LinkDir = Get-FullPath (Get-CodexCompatibilitySkillRoot)
+    $IndexPath = Get-FullPath (Get-CodexIndexPath)
+} elseif ($resolvedAgent -eq 'antigravity') {
     $SkillsDir = Get-FullPath $AntigravitySkillsDir
     $LinkDir = Get-FullPath $AntigravityLinkDir
     $IndexPath = Get-FullPath $AntigravityIndexPath
@@ -342,7 +348,126 @@ function ConvertTo-V3Index($raw) {
     }
 }
 
+function Get-CodexSkillCandidates {
+    $items = [Collections.Generic.List[object]]::new()
+    foreach ($root in (Get-CodexDiscoveryRoots)) {
+        if (-not (Test-Path -LiteralPath $root.path -PathType Container)) { continue }
+        $files = if ($root.class -eq 'plugin-cache') {
+            Get-ChildItem -LiteralPath $root.path -Filter 'SKILL.md' -File -Recurse -Force -ErrorAction SilentlyContinue
+        } else {
+            Get-ChildItem -LiteralPath $root.path -Directory -Force -ErrorAction SilentlyContinue |
+                ForEach-Object { Get-Item -LiteralPath (Join-Path $_.FullName 'SKILL.md') -Force -ErrorAction SilentlyContinue } |
+                Where-Object { $_ -and $_.PSIsContainer -eq $false }
+        }
+        foreach ($file in $files) {
+            if ($file.Directory.Name -eq '.backups') { continue }
+            $items.Add([pscustomobject]@{ Root = $root; SkillPath = $file.FullName; Directory = $file.Directory.FullName })
+        }
+    }
+    return @($items | Sort-Object { $_.SkillPath })
+}
+
+function Get-CodexSkillConfig {
+    $configPath = Join-Path (Get-CodexHome) 'config.toml'
+    $entries = @{}
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { return [pscustomobject]@{ entries=$entries; external=@() } }
+    $raw = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+    foreach ($block in [regex]::Matches($raw, '(?ms)^\s*\[\[skills\.config\]\](.*?)(?=^\s*\[\[|\z)')) {
+        $pathMatch = [regex]::Match($block.Groups[1].Value, '(?m)^\s*path\s*=\s*["'']([^"'']+)["'']')
+        if (-not $pathMatch.Success) { continue }
+        $enabledMatch = [regex]::Match($block.Groups[1].Value, '(?mi)^\s*enabled\s*=\s*(true|false)')
+        $fullPath = Resolve-CodexPath $pathMatch.Groups[1].Value
+        $enabled = $true
+        if ($enabledMatch.Success -and $enabledMatch.Groups[1].Value.ToLowerInvariant() -eq 'false') { $enabled = $false }
+        $entries[$fullPath.ToLowerInvariant()] = [pscustomobject]@{ path=$fullPath; enabled=$enabled }
+    }
+    return [pscustomobject]@{ entries=$entries; external=@() }
+}
+
+function Build-CodexIndex {
+    $byName = @{}
+    $config = Get-CodexSkillConfig
+    $discoveredSkillPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($candidate in (Get-CodexSkillCandidates)) {
+        $null = $discoveredSkillPaths.Add((Resolve-CodexPath $candidate.SkillPath))
+        $raw = Get-Content -LiteralPath $candidate.SkillPath -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+        $match = [regex]::Match($raw, '(?ms)^---\s*\r?\n(.*?)\r?\n---')
+        $frontmatter = if ($match.Success) { $match.Groups[1].Value } else { '' }
+        $name = Get-FrontmatterField $frontmatter 'name'
+        if (-not $name) { $name = Split-Path -Leaf $candidate.Directory }
+        $description = Get-FrontmatterField $frontmatter 'description'
+        $category = Get-Category (Get-FrontmatterField $frontmatter 'category') $name $description (Get-Keywords $name $description)
+        $capabilities = @(Get-Capabilities $frontmatter $name $category (Get-Keywords $name $description))
+        $configState = $config.entries[(Resolve-CodexPath $candidate.SkillPath).ToLowerInvariant()]
+        $variant = [ordered]@{
+            path = $candidate.Directory
+            skill_path = $candidate.SkillPath
+            scope = $candidate.Root.scope
+            class = $candidate.Root.class
+            protected = ([bool]$candidate.Root.protected -or (Test-CodexProtectedPath $candidate.Directory))
+            enabled = if ($configState) { [bool]$configState.enabled } else { $true }
+            description = $description
+            category = $category
+            capabilities = $capabilities
+            frontmatter = $frontmatter
+            sha256 = (Get-FileHash -LiteralPath $candidate.SkillPath -Algorithm SHA256).Hash
+        }
+        if (-not $byName.ContainsKey($name)) { $byName[$name] = [Collections.Generic.List[object]]::new() }
+        $byName[$name].Add([pscustomobject]$variant)
+    }
+
+    $entries = [Collections.Generic.List[object]]::new()
+    foreach ($name in ($byName.Keys | Sort-Object)) {
+        $variants = @($byName[$name] | Sort-Object path)
+        $visibleVariants = @($variants | Where-Object { $_.class -ne 'plugin-cache' -and $_.enabled })
+        $descriptions = @($variants.description | Where-Object { $_ } | Select-Object -Unique)
+        $frontmatters = @($variants.frontmatter | Select-Object -Unique)
+        $categories = @($variants.category | Select-Object -Unique)
+        $allCapabilities = @($variants | ForEach-Object { $_.capabilities } | Select-Object -Unique)
+        $isDuplicate = $variants.Count -gt 1
+        $reason = if ($visibleVariants.Count -eq 0 -and @($variants | Where-Object { -not $_.enabled }).Count -gt 0) { 'disabled-by-codex-config' } elseif ($visibleVariants.Count -eq 0) { 'plugin-enablement-dependent' } elseif ($isDuplicate) { 'multiple-discovery-roots; precedence-unknown' } elseif ($variants[0].class -eq 'system') { 'discovered-in-system-root' } else { "discovered-in-$($variants[0].scope)-root" }
+        $paths = @($variants | ForEach-Object { [ordered]@{ path=$_.path; skill_path=$_.skill_path; scope=$_.scope; class=$_.class; protected=$_.protected; enabled=$_.enabled } })
+        $agents = [ordered]@{
+            claude = [ordered]@{ visible=$false; path=$null; reason='not installed for claude' }
+            antigravity = [ordered]@{ visible=$false; path=$null; reason='not installed for antigravity' }
+            codex = [ordered]@{
+                visible = ($visibleVariants.Count -gt 0)
+                reason = $reason
+                paths = $paths
+                scopes = @($variants.scope | Select-Object -Unique)
+                protected = (@($variants | Where-Object protected).Count -gt 0)
+                enabled = (@($variants | Where-Object enabled).Count -gt 0)
+                duplicate = $isDuplicate
+                precedence = if ($isDuplicate) { 'unknown' } else { $null }
+                metadata_conflict = ($frontmatters.Count -gt 1)
+                variants = $variants
+            }
+        }
+        $entries.Add([pscustomobject][ordered]@{
+            name = $name
+            install_name = $name
+            description = ($descriptions -join ' | ')
+            capabilities = $allCapabilities
+            category = if ($categories.Count -eq 1) { $categories[0] } else { 'other' }
+            source = 'codex-discovery'
+            provenance = 'filesystem'
+            source_path = $paths[0].path
+            link_path = ''
+            discovered_at = [DateTime]::UtcNow.ToString('o')
+            installed_at = $null
+            commit = $null
+            sha256 = $null
+            status = if ($frontmatters.Count -eq $variants.Count) { 'ok' } else { 'broken' }
+            health = if ($frontmatters.Count -eq $variants.Count) { 'ok' } else { 'broken' }
+            agents = [pscustomobject]$agents
+        })
+    }
+    $external = @($config.entries.Values | Where-Object { -not $discoveredSkillPaths.Contains($_.path) } | ForEach-Object { [ordered]@{ path=$_.path; enabled=$_.enabled; status='unknown'; reason='config-only-or-external-path' } })
+    return [ordered]@{ schema_version=3; default_agent='codex'; updated_at=[DateTime]::UtcNow.ToString('o'); skills=@($entries); codex_config_external=$external }
+}
+
 function Build-Index {
+    if ($resolvedAgent -eq 'codex') { return (Build-CodexIndex) }
     $oldIndex = if (Test-Path -LiteralPath $IndexPath) {
         try {
             $raw = Get-Content -LiteralPath $IndexPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -703,7 +828,24 @@ function Invoke-DoctorGlobal($IndexData) {
     $missingList = @($targetSkills | Where-Object { $_.health -eq 'missing' })
     $healthyCount = [Math]::Max(0, ($scannedCount - $brokenList.Count - $missingList.Count))
 
-    if ($resolvedAgent -eq 'antigravity') {
+    if ($resolvedAgent -eq 'codex') {
+        $status = Get-CodexStatus
+        $duplicates = @($targetSkills | Where-Object { $_.agents.codex.duplicate })
+        Write-Host "doctor: scanned $scannedCount skills for agent 'codex'"
+        Write-Host "  CLI resolved: $($status.CliResolved)"
+        Write-Host "  CLI executable test: $($status.ExecutableTest)"
+        Write-Host "  CODEX_HOME: $($status.CodexHome)"
+        Write-Host "  user root: $($status.UserRoot)"
+        Write-Host "  compatibility root: $($status.CompatibilityRoot)"
+        Write-Host "  system root: $($status.SystemRoot) (protected)"
+        Write-Host "  healthy: $healthyCount"
+        foreach ($entry in $duplicates) {
+            Write-Host "  ⚠ Duplicate Codex Skill name: $($entry.name)"
+            foreach ($path in $entry.agents.codex.paths) { Write-Host "    - $($path.path) [$($path.scope)/$($path.class)]" }
+            Write-Host '    Codex precedence is undocumented; skill-manager will not choose a winner.'
+        }
+        return
+    } elseif ($resolvedAgent -eq 'antigravity') {
         $status = Get-AntigravityStatus
         Write-Host "doctor: scanned $scannedCount skills for agent 'antigravity'"
         Write-Host "  environment: $(if ($status.CliDetected) { 'CLI detected (' + $status.CliPath + ')' } elseif ($status.SkillsDirDetected) { 'skills directory detected' } else { 'not detected' })"
@@ -1120,8 +1262,17 @@ function Build-FixedFrontmatter([string]$OriginalFrontmatter, [string]$NewDesc, 
 
 function Invoke-FixSkill($Entry, [bool]$IsDryRun, [bool]$ConfirmYes) {
     $dirName = if ($Entry.install_name) { $Entry.install_name } else { $Entry.name }
-    $sourceDisk = Join-Path $SkillsDir $dirName
-    $linkDisk = Join-Path $LinkDir $dirName
+    if ($resolvedAgent -eq 'codex') {
+        $codexPaths = @($Entry.agents.codex.paths)
+        if ($Entry.agents.codex.protected -or @($codexPaths | Where-Object { $_.protected }).Count -gt 0) { throw 'Refusing to modify protected Codex SYSTEM Skill.' }
+        $writable = @($codexPaths | Where-Object { $_.scope -eq 'user' -and $_.class -eq 'agents' -and -not $_.protected })
+        if ($writable.Count -ne 1) { throw 'Refusing to modify Codex Skill outside the single writable user root.' }
+        $sourceDisk = $writable[0].path
+        $linkDisk = $sourceDisk
+    } else {
+        $sourceDisk = Join-Path $SkillsDir $dirName
+        $linkDisk = Join-Path $LinkDir $dirName
+    }
     $targetFile = $null
     $targetDisk = $null
 
@@ -1198,7 +1349,8 @@ function Invoke-FixSkill($Entry, [bool]$IsDryRun, [bool]$ConfirmYes) {
         }
         Write-Host "`ncategory (added):`n  $newCat`n"
         $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
-        Write-Host "no symlink. backup would go to: `$CLAUDE_SKILLS_DIR/.backups/$($Entry.name)-$ts-SKILL.md`n"
+        $backupPreview = if ($resolvedAgent -eq 'codex') { (Join-Path (Get-CodexHome) 'skill-manager\backups') } else { (Join-Path $SkillsDir '.backups') }
+        Write-Host "no symlink. backup would go to: $backupPreview/$($Entry.name)-$ts-SKILL.md`n"
         return
     }
 
@@ -1214,7 +1366,7 @@ function Invoke-FixSkill($Entry, [bool]$IsDryRun, [bool]$ConfirmYes) {
         }
     }
 
-    $backupDir = Join-Path $SkillsDir '.backups'
+    $backupDir = if ($resolvedAgent -eq 'codex') { Join-Path (Get-CodexHome) 'skill-manager\backups' } else { Join-Path $SkillsDir '.backups' }
     if (-not (Test-Path -LiteralPath $backupDir)) {
         New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
     }
@@ -1272,9 +1424,6 @@ $index = if (Test-Path -LiteralPath $IndexPath) {
 
 switch ($Command) {
     'refresh' {
-        if ($resolvedAgent -eq 'codex') {
-            throw "not-yet-implemented: see adapters/codex/stub-note.md"
-        }
         $fresh = Build-Index
         $fresh = Apply-Registration $fresh
         Write-Index $fresh
@@ -1366,10 +1515,6 @@ switch ($Command) {
         }
     }
     'doctor' {
-        if ($resolvedAgent -eq 'codex' -and -not $AllAgents) {
-            Write-Host "doctor: agent 'codex' is a stub adapter (not-yet-implemented). No skills installed."
-            exit 0
-        }
         $fresh = Build-Index
         if ($Name) {
             Invoke-DoctorSingle $Name $fresh
@@ -1378,9 +1523,6 @@ switch ($Command) {
         }
     }
     'fix' {
-        if ($resolvedAgent -eq 'codex') {
-            throw "not-yet-implemented: see adapters/codex/stub-note.md"
-        }
         $fresh = Build-Index
         if ($Name) {
             $entry = @($fresh.skills | Where-Object { $_.name -eq $Name -or $_.install_name -eq $Name } | Select-Object -First 1)[0]
