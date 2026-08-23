@@ -94,7 +94,10 @@ else
     echo "note: this environment cannot create real symlinks; skipping symlink regression" >&2
 fi
 
-bash "$INSTALLER" --local "$FIXTURE" --name fresh-skill >/dev/null 2>&1
+if ! fresh_out="$(bash "$INSTALLER" --local "$FIXTURE" --name fresh-skill 2>&1)"; then
+    echo "ASSERTION FAILED: fresh-skill install failed: $fresh_out" >&2
+    exit 1
+fi
 [[ -f "$CLAUDE_SKILLS_DIR/fresh-skill/SKILL.md" ]] || {
     echo "ASSERTION FAILED: fresh source SKILL.md missing" >&2
     exit 1
@@ -125,8 +128,14 @@ ls "$CLAUDE_SKILLS_DIR/.backups"/fresh-skill-* >/dev/null 2>&1 || {
 
 unset SKIP_MEMORY_UPDATE
 printf '| Skill | Repo | Source | Link | Smoke | Date |\n' > "$CLAUDE_SKILLS_DIR/installed-tools-summary.md"
-bash "$INSTALLER" --local "$FIXTURE" --name memory-skill --update-memory >/dev/null 2>&1
-bash "$INSTALLER" --local "$FIXTURE" --name memory-skill --force --update-memory >/dev/null 2>&1
+if ! mem_out="$(bash "$INSTALLER" --local "$FIXTURE" --name memory-skill --update-memory 2>&1)"; then
+    echo "ASSERTION FAILED: memory-skill install failed: $mem_out" >&2
+    exit 1
+fi
+if ! mem_out2="$(bash "$INSTALLER" --local "$FIXTURE" --name memory-skill --force --update-memory 2>&1)"; then
+    echo "ASSERTION FAILED: memory-skill force install failed: $mem_out2" >&2
+    exit 1
+fi
 memory_rows="$(grep -c '| memory-skill |' "$CLAUDE_SKILLS_DIR/installed-tools-summary.md" || true)"
 [[ "$memory_rows" -eq 1 ]] || {
     echo "ASSERTION FAILED: memory update not idempotent (rows=$memory_rows)" >&2

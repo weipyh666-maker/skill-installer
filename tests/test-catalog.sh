@@ -64,7 +64,20 @@ grep -q '"status": "unknown"' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
 grep -q '"source": "unknown"' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
 ! grep -Eq '"source_path": "([A-Za-z]:|/)|"link_path": "([A-Za-z]:|/)' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
 
-sed -i '/"name": "image-skill"/,/"source":/ s/"source": "unknown"/"source": "local"/' "$CLAUDE_SKILLS_DIR/installed-skills-index.json"
+PYTHON_BIN=''
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys' >/dev/null 2>&1; then
+    PYTHON_BIN='python3'
+elif command -v python >/dev/null 2>&1 && python -c 'import sys' >/dev/null 2>&1; then
+    PYTHON_BIN='python'
+fi
+"$PYTHON_BIN" - <<'PY'
+import os, re, pathlib
+skills_dir = pathlib.Path(os.environ.get("CLAUDE_SKILLS_DIR", "")).expanduser()
+index_path = skills_dir / "installed-skills-index.json"
+text = index_path.read_text(encoding="utf-8")
+text = re.sub(r'("name":\s*"image-skill"[\s\S]*?"source":\s*)"unknown"', r'\1"local"', text, count=1)
+index_path.write_text(text, encoding="utf-8")
+PY
 bash "$CATALOG" --refresh >/dev/null
 awk '/"name": "image-skill"/,/"source":/ { if ($0 ~ /"source":/) print }' "$CLAUDE_SKILLS_DIR/installed-skills-index.json" | grep '"source": "unknown"' >/dev/null
 grep -A 8 '"name": "multiline-skill"' "$CLAUDE_SKILLS_DIR/installed-skills-index.json" | grep -v -- '---' >/dev/null

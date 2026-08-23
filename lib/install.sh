@@ -56,7 +56,7 @@ ok() { printf '  + %s\n' "$1"; }
 warn() { printf '  ! %s\n' "$1" >&2; }
 
 canonical_path() {
-    if command -v realpath >/dev/null 2>&1; then
+    if command -v realpath >/dev/null 2>&1 && realpath -m -- . >/dev/null 2>&1; then
         realpath -m -- "$1"
         return
     fi
@@ -68,7 +68,7 @@ print(os.path.abspath(os.path.expanduser(sys.argv[1])))
 PY
         return
     fi
-    fail 'realpath or python3 is required for safe path validation'
+    fail 'realpath (with -m) or python3 is required for safe path validation'
 }
 
 valid_name() {
@@ -117,20 +117,22 @@ existing_path() {
 assert_no_sensitive_files() {
     local root="$1"
     local found
-    found="$(find "$root" -type f \( -name '.env' -o -name '.env.*' -o -name '*.key' -o -name '*.pem' -o -name '*.p12' -o -name '*.pfx' \) -print -quit)"
+    found="$(find "$root" -type f \( -name '.env' -o -name '.env.*' -o -name '*.key' -o -name '*.pem' -o -name '*.p12' -o -name '*.pfx' \) -print 2>/dev/null | head -n 1 || true)"
     [[ -z "$found" ]] || fail "refusing to copy sensitive file: $found"
-    found="$(find "$root" -type d \( -name '.git' -o -name 'secrets' \) -print -quit)"
+    found="$(find "$root" -type d \( -name '.git' -o -name 'secrets' \) -print 2>/dev/null | head -n 1 || true)"
     [[ -z "$found" ]] || fail "refusing to copy repository-internal directory: $found"
-    found="$(find "$root" -type l -print -quit)"
+    found="$(find "$root" -type l -print 2>/dev/null | head -n 1 || true)"
     [[ -z "$found" ]] || fail "refusing to copy symbolic link inside skill: $found"
 }
 
 assert_skill_layout() {
     local root="$1"
     [[ -f "$root/SKILL.md" ]] || fail "SKILL.md not found at $root"
-    head -40 "$root/SKILL.md" | grep -Eq '^---[[:space:]]*$' || fail "SKILL.md has no YAML frontmatter"
-    head -40 "$root/SKILL.md" | grep -Eq '^name:[[:space:]]*[a-z0-9][a-z0-9-]{0,63}[[:space:]]*$' || fail "SKILL.md name is invalid"
-    head -40 "$root/SKILL.md" | grep -Eq '^description:[[:space:]]*[^[:space:]].*$' || fail "SKILL.md description is missing"
+    local header
+    header="$(head -n 40 "$root/SKILL.md")"
+    echo "$header" | grep -Eq '^---[[:space:]]*$' || fail "SKILL.md has no YAML frontmatter"
+    echo "$header" | grep -Eq '^name:[[:space:]]*[a-z0-9][a-z0-9-]{0,63}[[:space:]]*$' || fail "SKILL.md name is invalid"
+    echo "$header" | grep -Eq '^description:[[:space:]]*[^[:space:]].*$' || fail "SKILL.md description is missing"
 }
 
 copy_contents() {
@@ -305,7 +307,7 @@ if [[ "$LINK_ONLY" -eq 0 ]]; then
         EXTRACT_DIR="$TEMP_ROOT/extract"
         mkdir -p "$EXTRACT_DIR"
         tar -xzf "$TARBALL" -C "$EXTRACT_DIR" || fail 'tar extraction failed'
-        INNER="$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+        INNER="$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | head -n 1 || true)"
         [[ -n "$INNER" ]] || fail 'unexpected GitHub tarball layout'
         copy_contents "$INNER" "$STAGE_PATH"
         ok "downloaded $REPO at commit $RESOLVED_COMMIT"
