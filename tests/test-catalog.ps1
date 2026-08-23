@@ -168,6 +168,59 @@ try {
     Assert-True ($doctorGlobal.Output -match 'broken: \d+') 'global doctor should report broken count'
     Assert-True ($doctorGlobal.Output -match 'missing: \d+') 'global doctor should report missing count'
 
+    # V2.2 Enhancements
+    # 1. fix --dry-run --name frontend-design
+    $fixDry = Invoke-Catalog @('-Command', 'fix', '-DryRun', '-Name', 'frontend-design')
+    Assert-True ($fixDry.ExitCode -eq 0) 'fix dry-run should succeed'
+    Assert-True ($fixDry.Output -match '\[proposed\] frontend-design') 'fix dry-run must contain [proposed] title'
+    Assert-True ($fixDry.Output -match 'description \(before\):') 'fix dry-run must contain description (before)'
+    Assert-True ($fixDry.Output -match 'description \(after\):') 'fix dry-run must contain description (after)'
+    Assert-True ($fixDry.Output -match 'capabilities \(added\):') 'fix dry-run must contain capabilities (added)'
+    Assert-True ($fixDry.Output -match 'category \(added\):') 'fix dry-run must contain category (added)'
+    Assert-True ($fixDry.Output -match 'backup would go to:') 'fix dry-run must contain backup destination'
+
+    # 2. fix --name frontend-design -Yes
+    $fixApply = Invoke-Catalog @('-Command', 'fix', '-Name', 'frontend-design', '-Yes')
+    Assert-True ($fixApply.ExitCode -eq 0) 'fix with -Yes should succeed'
+    Assert-True ($fixApply.Output -match 'fixed frontend-design:') 'fix apply output should confirm fixed'
+    Assert-True ($fixApply.Output -match 'trigger quality:\s*\d+.*\(was \d+') 'fix apply output should show trigger quality improvement'
+
+    $backupItems = @(Get-ChildItem (Join-Path $sourceRoot '.backups') -Filter 'frontend-design-*-SKILL.md')
+    Assert-True ($backupItems.Count -ge 1) 'backup file must exist in .backups'
+
+    $fixedFrontendContent = Get-Content -Raw (Join-Path $linkRoot 'frontend-design\SKILL.md')
+    Assert-True ($fixedFrontendContent -match 'Use when the user wants to create') 'fixed content must have rewritten description'
+    Assert-True ($fixedFrontendContent -match 'capabilities:') 'fixed content must have capabilities'
+    Assert-True ($fixedFrontendContent -match 'category:') 'fixed content must have category'
+
+    # 3. fix on short-skill (Case D)
+    $fixShort = Invoke-Catalog @('-Command', 'fix', '-Name', 'short-skill', '-Yes')
+    Assert-True ($fixShort.Output -match 'description too short') 'fix on short skill should skip and report too short'
+
+    # 4. Description rewrite cases A, B, C, E
+    New-TestSkill (Join-Path $linkRoot 'case-a-skill') 'case-a-skill' 'Use when testing case a description already compliant.'
+    New-TestSkill (Join-Path $linkRoot 'case-b-skill') 'case-b-skill' 'Build and deploy full-stack applications with ease and speed.'
+    New-TestSkill (Join-Path $linkRoot 'case-c-skill') 'case-c-skill' 'This skill should be used when the user needs to transcribe audio recordings.'
+    New-TestSkill (Join-Path $linkRoot 'case-e-skill') 'case-e-skill' 'General purpose helper that performs specialized tasks for workflows.'
+
+    $v22Refresh = Invoke-Catalog @('-Command', 'refresh')
+    Assert-True ($v22Refresh.ExitCode -eq 0) 'refresh after adding case skills should succeed'
+
+    $fixBatch = Invoke-Catalog @('-Command', 'fix', '-Yes')
+    Assert-True ($fixBatch.ExitCode -eq 0) 'batch fix with -Yes should succeed'
+    Assert-True ($fixBatch.Output -match 'fixed case-b-skill:') 'batch fix should process case-b-skill'
+    Assert-True ($fixBatch.Output -match 'fixed case-c-skill:') 'batch fix should process case-c-skill'
+
+    $fixedCaseC = Get-Content -Raw (Join-Path $linkRoot 'case-c-skill\SKILL.md')
+    Assert-True ($fixedCaseC -match 'Use when the user needs to transcribe audio recordings') 'case c should be rewritten cleanly'
+
+    $fixedCaseB = Get-Content -Raw (Join-Path $linkRoot 'case-b-skill\SKILL.md')
+    Assert-True ($fixedCaseB -match 'Use when the user wants to build and deploy') 'case b should be rewritten with base verb'
+
+    # 5. Doctor verification after fix
+    $doctorAfter = Invoke-Catalog @('-Command', 'doctor', '-Name', 'case-b-skill')
+    Assert-True ($doctorAfter.Output -match 'Trigger description looks Claude-discoverable') 'fixed skill should be Claude-discoverable'
+
     Write-Output 'PASS: catalog regression tests'
 }
 finally {

@@ -8,6 +8,8 @@ MODE='list'
 QUERY=''
 NAME=''
 LIMIT=10
+DRY_RUN=0
+ASSUME_YES=0
 JSON_OUTPUT=0
 REGISTER_NAME=''
 REGISTER_SOURCE=''
@@ -24,6 +26,7 @@ Usage:
   catalog.sh --find QUERY [--limit N]
   catalog.sh --show NAME
   catalog.sh --doctor [--name NAME]
+  catalog.sh --fix [--name NAME] [--dry-run] [--yes]
   catalog.sh --json --list
 
 Catalog commands require Python 3. Installation itself does not.
@@ -38,6 +41,9 @@ while [[ $# -gt 0 ]]; do
         --find)       [[ $# -ge 2 ]] || { echo '--find needs a query' >&2; exit 1; }; MODE='find'; QUERY="$2"; shift 2 ;;
         --show)       [[ $# -ge 2 ]] || { echo '--show needs a skill name' >&2; exit 1; }; MODE='show'; NAME="$2"; shift 2 ;;
         --doctor)     MODE='doctor'; shift ;;
+        --fix)        MODE='fix'; shift ;;
+        --dry-run)    DRY_RUN=1; shift ;;
+        -y|--yes)     ASSUME_YES=1; shift ;;
         --name)       [[ $# -ge 2 ]] || { echo '--name needs a value' >&2; exit 1; }; NAME="$2"; shift 2 ;;
         --limit)      [[ $# -ge 2 ]] || { echo '--limit needs a number' >&2; exit 1; }; LIMIT="$2"; shift 2 ;;
         --json)       JSON_OUTPUT=1; shift ;;
@@ -61,7 +67,7 @@ else
     exit 1
 fi
 
-"$PYTHON_BIN" - "$MODE" "$QUERY" "$NAME" "$LIMIT" "$JSON_OUTPUT" "$REGISTER_NAME" "$REGISTER_SOURCE" "$REGISTER_INSTALLED_AT" "$REGISTER_COMMIT" "$REGISTER_SHA256" <<'PY'
+"$PYTHON_BIN" - "$MODE" "$QUERY" "$NAME" "$LIMIT" "$DRY_RUN" "$ASSUME_YES" "$JSON_OUTPUT" "$REGISTER_NAME" "$REGISTER_SOURCE" "$REGISTER_INSTALLED_AT" "$REGISTER_COMMIT" "$REGISTER_SHA256" <<'PY'
 import datetime as dt
 import json
 import os
@@ -75,13 +81,51 @@ for stream in (sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure"):
         stream.reconfigure(encoding="utf-8", errors="replace")
 
-mode, query, requested_name, limit_str, json_output, register_name, register_source, register_installed_at, register_commit, register_sha256 = sys.argv[1:11]
+mode, query, requested_name, limit_str, dry_run_str, assume_yes_str, json_output, register_name, register_source, register_installed_at, register_commit, register_sha256 = sys.argv[1:13]
 limit = int(limit_str) if limit_str.isdigit() else 10
+dry_run = dry_run_str == "1"
+assume_yes = assume_yes_str == "1"
 json_output = json_output == "1"
 home = Path.home()
 skills_dir = Path(os.environ.get("CLAUDE_SKILLS_DIR", str(home / "Claude-Code"))).expanduser()
 link_dir = Path(os.environ.get("CLAUDE_SKILLS_LINK_DIR", str(home / ".claude" / "skills"))).expanduser()
 index_path = Path(os.environ.get("CLAUDE_SKILLS_INDEX_PATH", str(skills_dir / "installed-skills-index.json"))).expanduser()
+
+action_verbs_map = {
+    "creating": "create", "building": "build", "generating": "generate", "analyzing": "analyze",
+    "inspecting": "inspect", "running": "run", "finding": "find", "checking": "check",
+    "converting": "convert", "translating": "translate", "developing": "develop", "managing": "manage",
+    "formatting": "format", "testing": "test", "searching": "search", "querying": "query",
+    "deploying": "deploy", "fixing": "fix", "scaffolding": "scaffold", "designing": "design",
+    "writing": "write", "editing": "edit", "reviewing": "review", "extracting": "extract",
+    "summarizing": "summarize", "tracking": "track", "transforming": "transform", "diagnosing": "diagnose",
+    "operating": "operate", "providing": "provide", "handling": "handle", "applying": "apply",
+    "modifying": "modify", "debugging": "debug", "evaluating": "evaluate", "optimizing": "optimize",
+    "refactoring": "refactor", "auditing": "audit", "drafting": "draft", "publishing": "publish",
+    "driving": "drive", "automating": "automate", "learning": "learn", "scanning": "scan",
+    "creates": "create", "builds": "build", "generates": "generate", "analyzes": "analyze",
+    "inspects": "inspect", "runs": "run", "finds": "find", "checks": "check",
+    "converts": "convert", "translates": "translate", "develops": "develop", "manages": "manage",
+    "formats": "format", "tests": "test", "searches": "search", "queries": "query",
+    "deploys": "deploy", "fixes": "fix", "scaffolds": "scaffold", "designs": "design",
+    "writes": "write", "edits": "edit", "reviews": "review", "extracts": "extract",
+    "summarizes": "summarize", "tracks": "track", "transforms": "transform", "diagnoses": "diagnose",
+    "operates": "operate", "provides": "provide", "handles": "handle", "applies": "apply",
+    "modifies": "modify", "debugs": "debug", "evaluates": "evaluate", "optimizes": "optimize",
+    "refactors": "refactor", "audits": "audit", "drafts": "draft", "publishes": "publish",
+    "drives": "drive", "automates": "automate", "learns": "learn", "scans": "scan",
+    "create": "create", "build": "build", "generate": "generate", "analyze": "analyze",
+    "inspect": "inspect", "run": "run", "find": "find", "check": "check",
+    "convert": "convert", "translate": "translate", "develop": "develop", "manage": "manage",
+    "format": "format", "test": "test", "search": "search", "query": "query",
+    "deploy": "deploy", "fix": "fix", "scaffold": "scaffold", "design": "design",
+    "write": "write", "edit": "edit", "review": "review", "extract": "extract",
+    "summarize": "summarize", "track": "track", "transform": "transform", "diagnose": "diagnose",
+    "operate": "operate", "provide": "provide", "handle": "handle", "apply": "apply",
+    "modify": "modify", "debug": "debug", "evaluate": "evaluate", "optimize": "optimize",
+    "refactor": "refactor", "audit": "audit", "draft": "draft", "publish": "publish",
+    "drive": "drive", "automate": "automate", "learn": "learn", "scan": "scan",
+}
 
 aliases = {
     "图片": ["image", "vision", "photo", "screenshot", "ocr"],
@@ -128,13 +172,18 @@ def extract_frontmatter_field(frontmatter, field_name):
     desc_idx = -1
     style = None
     for idx, line in enumerate(lines):
-        m = re.match(rf"^{field_name}:\s*([>|])$", line.strip())
+        trimmed = line.strip()
+        m = re.match(rf"^{field_name}:\s*([>|])$", trimmed)
         if m:
             desc_idx = idx
             style = m.group(1)
             break
         if re.match(rf"^{field_name}:\s*\S", line):
             desc_idx = idx
+            break
+        if re.match(rf"^{field_name}:\s*$", line):
+            desc_idx = idx
+            style = "list"
             break
     if desc_idx == -1:
         return ""
@@ -148,9 +197,13 @@ def extract_frontmatter_field(frontmatter, field_name):
         if not line.strip():
             continue
         if line.startswith(" ") or line.startswith("\t"):
-            collected.append(line.strip())
+            item = line.strip().lstrip("-").strip().strip("\"'")
+            if item:
+                collected.append(item)
         else:
             break
+    if style == "list":
+        return ", ".join(collected)
     return " ".join(collected)
 
 def derive_keywords(name, description):
@@ -712,6 +765,247 @@ def doctor_single(skill_name, index_data):
         for s in suggestions:
             print(f"  - {s}")
 
+def get_trigger_warning_count(frontmatter, desc, caps, cat):
+    count = 0
+    if not desc or len(desc.strip()) < 20:
+        count += 1
+    elif not desc.strip().lower().startswith("use when"):
+        count += 1
+
+    action_words = ('use', 'create', 'analyze', 'build', 'check', 'inspect', 'run', 'extract', 'convert', 'manage', 'format', 'test', 'search', 'query', 'deploy', 'fix', 'scaffold', 'design', 'write', 'edit', 'review', 'translate', 'summarize', 'crawl', 'scrape', 'monitor', '转换', '提取', '创建', '分析', '构建', '检查', '运行', '调试', '搜索', '编写', '审查', '设计', '做')
+    desc_lower = desc.lower() if desc else ""
+    if not any(act in desc_lower for act in action_words):
+        count += 1
+
+    if not caps:
+        count += 1
+    if not cat:
+        count += 1
+    return count
+
+def is_symlink_or_reparse(path_obj):
+    if path_obj.is_symlink():
+        return True
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+            attrs = ctypes.windll.kernel32.GetFileAttributesW(str(path_obj))
+            if attrs != -1 and (attrs & FILE_ATTRIBUTE_REPARSE_POINT):
+                return True
+    except Exception:
+        pass
+    return False
+
+def rewrite_description(desc):
+    trimmed = desc.strip()
+    if len(trimmed) < 20:
+        return trimmed, False, True, "description too short to fix automatically; manual edit needed"
+    if trimmed.lower().startswith("use when"):
+        clean = "Use when " + re.sub(r"^use when\s*", "", trimmed, flags=re.IGNORECASE)
+        return clean, (clean != trimmed), False, "already compliant"
+
+    pattern_c_when = r"^(?:this skill\s+(?:should be used|is used|can be used)\s+when\s+|use this skill\s+(?:when|whenever)\s+|used\s+(?:when|whenever)\s*)"
+    if re.search(pattern_c_when, trimmed, flags=re.IGNORECASE):
+        stripped = re.sub(pattern_c_when, "", trimmed, flags=re.IGNORECASE).strip()
+        if re.search(r"^the user\b", stripped, flags=re.IGNORECASE):
+            return f"Use when {stripped}", True, False, "case c: 3rd person when user"
+        else:
+            trimmed = stripped
+
+    pattern_c2 = r"^(?:this skill\s+(?:should be used|is used|can be used)\s+(?:to|for)\s*|use this skill\s+(?:to|for)\s*|this skill\s+(?:provides|allows|helps with|helps to)\s*|used\s+(?:to|for)\s*)"
+    if re.search(pattern_c2, trimmed, flags=re.IGNORECASE):
+        trimmed = re.sub(pattern_c2, "", trimmed, flags=re.IGNORECASE).strip()
+
+    words = trimmed.split()
+    if words:
+        first_word = words[0].lower().rstrip(",.:;")
+        if first_word in action_verbs_map:
+            base_verb = action_verbs_map[first_word]
+            rest = " ".join(words[1:]) if len(words) > 1 else ""
+            new_text = f"Use when the user wants to {base_verb} {rest}".strip()
+            return new_text, True, False, "case b: action verb"
+
+    first_char = trimmed[0].lower()
+    rest_chars = trimmed[1:] if len(trimmed) > 1 else ""
+    return f"Use when the user wants to {first_char}{rest_chars}", True, False, "case e: default"
+
+def get_top_capabilities(frontmatter, name, description, category):
+    explicit = extract_frontmatter_field(frontmatter, "capabilities")
+    if explicit:
+        trimmed = explicit.strip("[]")
+        parts = [p.strip().strip("'\"") for p in re.split(r"[,;]", trimmed) if p.strip()]
+        if parts:
+            return list(dict.fromkeys(parts))
+
+    stop_words = {'use', 'when', 'the', 'user', 'wants', 'to', 'for', 'and', 'or', 'in', 'on', 'with', 'a', 'an', 'is', 'are', 'this', 'skill', 'should', 'be', 'can', 'needs', 'any', 'from', 'into', 'by', 'that', 'as', 'it', 'of', 'at', 'so', 'more', 'reliably', 'auto', 'discover', 'whenever', 'about', 'also', 'all', 'will', 'then', 'than', 'such', 'not', 'out', 'up', 'down', 'only', 'both', 'each', 'how', 'what', 'which', 'who', 'whom', 'whose', 'why', 'where', 'there', 'their', 'they', 'them', 'these', 'those'}
+
+    name_words = re.findall(r"[a-z0-9][a-z0-9_-]{1,}|[\u3400-\u9fff]{2,}", name.lower())
+    desc_words = re.findall(r"[a-z0-9][a-z0-9_-]{1,}|[\u3400-\u9fff]{2,}", description.lower())
+    alias_words = query_terms(f"{name} {description}")
+
+    counts = {}
+    for w in name_words:
+        if w not in stop_words and len(w) >= 2:
+            counts[w] = counts.get(w, 0) + 10
+    for w in desc_words:
+        if w not in stop_words and len(w) >= 2:
+            counts[w] = counts.get(w, 0) + 2
+    for w in alias_words:
+        if w not in stop_words and len(w) >= 2:
+            counts[w] = counts.get(w, 0) + 3
+
+    sorted_words = sorted(counts.keys(), key=lambda k: counts[k], reverse=True)
+    selected = []
+    for k in sorted_words:
+        if len(selected) < 5:
+            selected.append(k)
+    if not selected:
+        selected.append(name)
+        if category and category != "other":
+            selected.append(category)
+    return selected
+
+def build_fixed_frontmatter(raw_content, name, new_desc, new_caps, new_cat):
+    m = re.search(r"(?ms)^---\s*\r?\n(.*?)\r?\n---(?:\s*\r?\n|$)", raw_content)
+    old_frontmatter = m.group(1) if m else ""
+    body = raw_content[m.end():] if m else raw_content
+
+    lines = ["---", f"name: {name}", f"description: {new_desc}", "capabilities:"]
+    for cap in new_caps:
+        lines.append(f"  - {cap}")
+    lines.append(f"category: {new_cat}")
+
+    known_fields = {"name", "description", "capabilities", "category"}
+    in_skipped_block = False
+    for line in old_frontmatter.splitlines():
+        trimmed = line.strip()
+        if not trimmed:
+            continue
+        if line.startswith(" ") or line.startswith("\t"):
+            if in_skipped_block:
+                continue
+            lines.append(line)
+            continue
+        key = line.split(":", 1)[0].strip()
+        if key in known_fields:
+            in_skipped_block = True
+        else:
+            in_skipped_block = False
+            lines.append(line)
+    lines.append("---")
+    new_fm_text = "\n".join(lines)
+    return f"{new_fm_text}\n{body}"
+
+def fix_skill(entry, is_dry_run, is_assume_yes):
+    dir_name = entry.get("install_name") or entry["name"]
+    source_disk = skills_dir / dir_name
+    link_disk = link_dir / dir_name
+    source_file = source_disk / "SKILL.md"
+    link_file = link_disk / "SKILL.md"
+
+    target_file = None
+    if source_file.is_file():
+        target_file = source_file
+    elif link_file.is_file():
+        target_file = link_file
+    else:
+        print(f"skipping {entry['name']}: SKILL.md not found")
+        return
+
+    is_symlink = is_symlink_or_reparse(target_file)
+    try:
+        raw_content = target_file.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        print(f"skipping {entry['name']}: read error: {exc}")
+        return
+
+    fm_match = re.search(r"(?ms)^---\s*\r?\n(.*?)\r?\n---(?:\s*\r?\n|$)", raw_content)
+    if not fm_match:
+        print(f"skipping {entry['name']}: invalid or missing YAML frontmatter")
+        return
+    frontmatter = fm_match.group(1)
+    old_name = extract_frontmatter_field(frontmatter, "name") or entry["name"]
+    old_desc = extract_frontmatter_field(frontmatter, "description")
+    old_caps = extract_frontmatter_field(frontmatter, "capabilities")
+    old_cat = extract_frontmatter_field(frontmatter, "category")
+
+    if not old_desc:
+        print(f"skipping {entry['name']}: description missing in frontmatter")
+        return
+
+    new_desc, changed, skip, reason = rewrite_description(old_desc)
+    if skip:
+        print(f"skipping {entry['name']}: {reason}")
+        return
+
+    new_caps = get_top_capabilities(frontmatter, old_name, new_desc, entry.get("category"))
+    new_cat = old_cat or entry.get("category") or "other"
+
+    backup_dir = skills_dir / ".backups"
+    timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    backup_path = backup_dir / f"{entry['name']}-{timestamp}-SKILL.md"
+
+    fixed_content = build_fixed_frontmatter(raw_content, old_name, new_desc, new_caps, new_cat)
+
+    if is_symlink:
+        print(f"refusing to modify symlink: {target_file}; suggested patch for {entry['name']}:")
+        print("---")
+        print(f"name: {old_name}")
+        print(f"description: {new_desc}")
+        print("capabilities:")
+        for c in new_caps:
+            print(f"  - {c}")
+        print(f"category: {new_cat}")
+        print("---")
+        return
+
+    if is_dry_run:
+        print(f"[proposed] {entry['name']}\n")
+        print("description (before):")
+        print(f"  {old_desc}\n")
+        print("description (after):")
+        print(f"  {new_desc}\n")
+        print("capabilities (added):")
+        for c in new_caps:
+            print(f"  - {c}")
+        print("\ncategory (added):")
+        print(f"  {new_cat}\n")
+        print(f"no symlink. backup would go to: $CLAUDE_SKILLS_DIR/.backups/{entry['name']}-{timestamp}-SKILL.md\n")
+        return
+
+    if not is_assume_yes:
+        try:
+            resp = input(f"Apply fix to {entry['name']}? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            resp = "n"
+        if resp not in ("y", "yes"):
+            print(f"Skipped {entry['name']}.")
+            return
+
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_path.write_text(raw_content, encoding="utf-8")
+    target_file.write_text(fixed_content, encoding="utf-8")
+
+    # verify
+    try:
+        written_check = target_file.read_text(encoding="utf-8", errors="replace")
+        check_match = re.search(r"(?ms)^---\s*\r?\n(.*?)\r?\n---(?:\s*\r?\n|$)", written_check)
+        if not check_match:
+            print(f"ERROR: verification failed after writing {target_file}. Restoring backup...")
+            target_file.write_text(raw_content, encoding="utf-8")
+            return
+    except Exception as exc:
+        print(f"ERROR: verification failed: {exc}. Restoring backup...")
+        target_file.write_text(raw_content, encoding="utf-8")
+        return
+
+    before_warnings = get_trigger_warning_count(frontmatter, old_desc, old_caps, old_cat)
+    after_warnings = get_trigger_warning_count(check_match.group(1), new_desc, ",".join(new_caps), new_cat)
+
+    print(f"fixed {entry['name']}: description rewritten, capabilities + category added")
+    print(f"  trigger quality: {after_warnings} ⚠ (was {before_warnings} ⚠)")
+
 index = load_index()
 
 if mode == "refresh":
@@ -774,4 +1068,28 @@ elif mode == "doctor":
         doctor_single(requested_name, fresh)
     else:
         doctor_global(fresh)
+elif mode == "fix":
+    fresh = build_index()
+    if requested_name:
+        entry = next((item for item in fresh.get("skills", []) if item["name"] == requested_name or item.get("install_name") == requested_name), None)
+        if entry is None:
+            raise SystemExit(f"Skill not found: {requested_name}")
+        fix_skill(entry, dry_run, assume_yes)
+    else:
+        ok_skills = [s for s in fresh.get("skills", []) if s.get("status") == "ok" and s.get("health") == "ok"]
+        if dry_run:
+            for s in ok_skills:
+                fix_skill(s, True, True)
+        else:
+            if not assume_yes:
+                try:
+                    ans = input(f"This will rewrite {len(ok_skills)} skills. Continue? [y/N] ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    ans = "n"
+                if ans not in ("y", "yes"):
+                    print("Operation cancelled.")
+                    raise SystemExit(0)
+            for s in ok_skills:
+                fix_skill(s, False, True)
 PY
+

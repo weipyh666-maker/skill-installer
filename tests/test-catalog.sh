@@ -187,4 +187,75 @@ doctor_output="${doctor_output//$'\r'/}"
 [[ "$doctor_output" =~ "broken:" ]]
 [[ "$doctor_output" =~ "missing:" ]]
 
+# V2.2 Enhancements
+# 1. fix --dry-run --name frontend-design
+fix_dry_output="$(bash "$CATALOG" --fix --dry-run --name frontend-design)"
+[[ "$fix_dry_output" =~ "[proposed] frontend-design" ]]
+[[ "$fix_dry_output" =~ "description (before):" ]]
+[[ "$fix_dry_output" =~ "description (after):" ]]
+[[ "$fix_dry_output" =~ "capabilities (added):" ]]
+[[ "$fix_dry_output" =~ "category (added):" ]]
+[[ "$fix_dry_output" =~ "backup would go to:" ]]
+
+# 2. fix --name frontend-design --yes
+fix_apply_output="$(bash "$CATALOG" --fix --name frontend-design --yes)"
+[[ "$fix_apply_output" =~ "fixed frontend-design:" ]]
+[[ "$fix_apply_output" =~ "trigger quality:" ]]
+
+ls "$CLAUDE_SKILLS_DIR/.backups/frontend-design-"*"-SKILL.md" >/dev/null 2>&1
+grep -q 'Use when the user wants to create' "$CLAUDE_SKILLS_LINK_DIR/frontend-design/SKILL.md"
+grep -q 'capabilities:' "$CLAUDE_SKILLS_LINK_DIR/frontend-design/SKILL.md"
+grep -q 'category:' "$CLAUDE_SKILLS_LINK_DIR/frontend-design/SKILL.md"
+
+# 3. fix on short-skill (Case D)
+fix_short_output="$(bash "$CATALOG" --fix --name short-skill --yes)"
+[[ "$fix_short_output" =~ "description too short" ]]
+
+# 4. Description rewrite cases A, B, C, E
+mkdir -p "$CLAUDE_SKILLS_LINK_DIR/case-a-skill" "$CLAUDE_SKILLS_LINK_DIR/case-b-skill" "$CLAUDE_SKILLS_LINK_DIR/case-c-skill" "$CLAUDE_SKILLS_LINK_DIR/case-e-skill"
+cat > "$CLAUDE_SKILLS_LINK_DIR/case-a-skill/SKILL.md" <<'EOF'
+---
+name: case-a-skill
+description: Use when testing case a description already compliant.
+---
+# case-a-skill
+EOF
+
+cat > "$CLAUDE_SKILLS_LINK_DIR/case-b-skill/SKILL.md" <<'EOF'
+---
+name: case-b-skill
+description: Build and deploy full-stack applications with ease and speed.
+---
+# case-b-skill
+EOF
+
+cat > "$CLAUDE_SKILLS_LINK_DIR/case-c-skill/SKILL.md" <<'EOF'
+---
+name: case-c-skill
+description: This skill should be used when the user needs to transcribe audio recordings.
+---
+# case-c-skill
+EOF
+
+cat > "$CLAUDE_SKILLS_LINK_DIR/case-e-skill/SKILL.md" <<'EOF'
+---
+name: case-e-skill
+description: General purpose helper that performs specialized tasks for workflows.
+---
+# case-e-skill
+EOF
+
+bash "$CATALOG" --refresh >/dev/null
+
+fix_batch_output="$(bash "$CATALOG" --fix --yes)"
+[[ "$fix_batch_output" =~ "fixed case-b-skill:" ]]
+[[ "$fix_batch_output" =~ "fixed case-c-skill:" ]]
+
+grep -q 'Use when the user needs to transcribe audio recordings' "$CLAUDE_SKILLS_LINK_DIR/case-c-skill/SKILL.md"
+grep -q 'Use when the user wants to build and deploy' "$CLAUDE_SKILLS_LINK_DIR/case-b-skill/SKILL.md"
+
+# 5. Doctor verification after fix
+doctor_after_output="$(bash "$CATALOG" --doctor --name case-b-skill)"
+[[ "$doctor_after_output" =~ "Trigger description looks Claude-discoverable" ]]
+
 echo 'PASS: catalog regression tests'

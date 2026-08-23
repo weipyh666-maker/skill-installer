@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.2.0] — 2026-08-23
+
+### Added
+- Added `fix` command (`--fix` / `-Command fix`) to automatically repair `SKILL.md` frontmatter triggers for individual skills (`--name`) or entire inventories in bulk.
+- Implemented 5-case description rewrite engine converting legacy, 3rd-person, and imperative descriptions into standard `"Use when the user wants to <base-verb>..."` trigger syntax.
+- Added automatic `capabilities` derivation (top 5 deduplicated tags extracted from name, description, and aliases) and `category` derivation (bucketing into documents, development, media, data, browser, research, or other).
+- Added safe symlink and junction reparse point detection that refuses in-place modifications and prints suggested patches to stdout.
+- Added automatic timestamped backups to `$CLAUDE_SKILLS_DIR/.backups/<skill>-<timestamp>-SKILL.md` before any file modifications.
+- Added post-fix doctor verification displaying immediate trigger quality improvement (e.g. `trigger quality: 0 ⚠ (was 3 ⚠)`).
+- Added comprehensive regression tests in `tests/test-catalog.ps1` and `tests/test-catalog.sh` verifying `--dry-run`, interactive / `-Yes` confirmations, description rewrite cases A/B/C/D/E, backup retention, and doctor improvement assertions.
+
 ## [2.1.0] — 2026-08-23
 
 ### Added

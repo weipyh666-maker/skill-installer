@@ -143,7 +143,61 @@ The manager maintains a cache index at `CLAUDE_SKILLS_DIR/installed-skills-index
 | Find | `-Command find -Query value [-Limit N]` | `--find value [--limit N]` | Scored bilingual search with compound AND filtering |
 | Show | `-Command show -Name value` | `--show value` | Deep inspection of skill provenance and visibility |
 | Doctor | `-Command doctor [-Name value]` | `--doctor [--name value]` | Global inventory check or single-skill trigger quality diagnosis |
+| Fix | `-Command fix [-Name value] [-DryRun] [-Yes]` | `--fix [--name value] [--dry-run] [--yes]` | Rewrite frontmatter triggers and auto-derive capabilities & category |
 | Refresh | `-Command refresh` | `--refresh` | Rescan filesystem and update catalog index |
+
+## Improving existing skills with `skill fix`
+
+The `fix` command upgrades legacy or poorly discoverable `SKILL.md` frontmatter so that Claude Code can reliably trigger installed skills on matching user intents.
+
+~~~powershell
+# Preview changes for all skills (dry-run)
+pwsh -File lib\catalog.ps1 -Command fix -DryRun
+
+# Preview changes for a single skill
+pwsh -File lib\catalog.ps1 -Command fix -Name frontend-design -DryRun
+
+# Interactively fix a single skill
+pwsh -File lib\catalog.ps1 -Command fix -Name frontend-design
+
+# Fix all skills in bulk without prompts
+pwsh -File lib\catalog.ps1 -Command fix -Yes
+~~~
+
+~~~bash
+# Preview changes for all skills (dry-run)
+bash lib/catalog.sh --fix --dry-run
+
+# Preview changes for a single skill
+bash lib/catalog.sh --fix --name frontend-design --dry-run
+
+# Interactively fix a single skill
+bash lib/catalog.sh --fix --name frontend-design
+
+# Fix all skills in bulk without prompts
+bash lib/catalog.sh --fix --yes
+~~~
+
+### Rewrite rules & safety
+
+1. **Description normalization**:
+   - **Case A** (`Use when...`): Retained as-is.
+   - **Case B** (Imperative verbs like `Create`, `Build`, `Analyze`, `Convert`): Prefixed with `Use when the user wants to <base-verb>...`.
+   - **Case C** (3rd-person introductory phrases like `This skill should be used when the user needs to...`): Stripped of boilerplate and converted cleanly to `Use when the user needs to...`.
+   - **Case D** (Short descriptions < 20 chars): Skipped with a warning explaining that manual editing is required.
+   - **Case E** (General sentences): Prefixed with `Use when the user wants to...`.
+2. **Auto-derived capabilities & category**:
+   - Up to 5 key noun/capability tags are extracted from the name, description, and aliases.
+   - Category is bucketed across `documents`, `development`, `media`, `data`, `browser`, `research`, or `other`.
+3. **Symlink protection**:
+   - Symlinks and NTFS junction reparse points are never modified in-place; a proposed patch is printed to stdout instead.
+4. **Automated backups**:
+   - Before modifying any file, the original `SKILL.md` is backed up to `$CLAUDE_SKILLS_DIR/.backups/<skill>-<timestamp>-SKILL.md`.
+5. **Doctor verification**:
+   - After applying fixes, `doctor` automatically verifies that trigger quality warnings (⚠) have decreased.
+
+> [!WARNING]
+> `skill fix` modifies `SKILL.md` frontmatter in place. Always run `--dry-run` to preview changes before applying.
 
 ## Installer options
 
@@ -223,6 +277,8 @@ bash -n lib/catalog.sh
 The test suite uses temporary directories and never writes to a user's Claude Code directory.
 
 ## Release notes
+
+Version 2.2.0 adds `skill fix` (`--fix` / `-Command fix`) for automated and interactive batch frontmatter trigger repair, 5-case description normalization, automated `capabilities` and `category` derivation, symlink protection, automated backups, and post-fix doctor verification.
 
 Version 2.1.0 adds score-ranked bilingual capability search (`--find` / `-Query` with `--limit`), dual-mode inventory diagnosis (`--doctor` global & `--doctor --name` single-skill trigger quality inspection with actionable suggestions), and a 12th trigger condition for intent matching.
 
