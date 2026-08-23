@@ -1104,6 +1104,15 @@ function Invoke-FixSkill($Entry, [bool]$IsDryRun, [bool]$ConfirmYes) {
         return
     }
 
+    # Check for sensitive files before fixing
+    $sensitiveFiles = @(Get-ChildItem -LiteralPath $targetDisk -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -match '^\.env($|\.)' -or $_.Extension -match '^\.(key|pem|p12|pfx)$'
+    })
+    if ($sensitiveFiles.Count -gt 0) {
+        Write-Host "refusing to copy sensitive file: $($sensitiveFiles[0].FullName)"
+        return
+    }
+
     $rawContent = ''
     try {
         $rawContent = Get-Content -LiteralPath $targetFile -Raw -Encoding UTF8
@@ -1307,7 +1316,7 @@ switch ($Command) {
         if ($Json) {
             $entry | ConvertTo-Json -Depth 10
         } else {
-            foreach ($key in @('name', 'install_name', 'description', 'category', 'source', 'provenance', 'source_path', 'link_path', 'discovered_at', 'installed_at', 'commit', 'sha256', 'status', 'health')) {
+            foreach ($key in @('name', 'install_name', 'description', 'capabilities', 'category', 'source', 'provenance', 'source_path', 'link_path', 'discovered_at', 'installed_at', 'commit', 'sha256', 'status', 'health')) {
                 $val = $entry.$key
                 if ($key -eq 'capabilities' -and $val) { $val = ($val -join ', ') }
                 Write-Host "$($key): $val"

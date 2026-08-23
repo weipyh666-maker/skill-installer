@@ -120,6 +120,30 @@ bash lib/install.sh --local ./my-skill
 bash lib/install.sh --local ./my-skill --name my-skill --force
 ~~~
 
+## Claude 1.0 status
+
+skill-manager v3.1.2 完成 Claude 1.0 全部 11 项毕业验收：
+
+| # | 验收项 | 状态 |
+|---|---|---|
+| A | scan 能发现手工安装的 Skill | ✅ |
+| B | catalog 完整 | ✅ |
+| C | capabilities 分类合理 | ✅ |
+| D | refresh 稳定 | ✅ |
+| E | find 支持自然语言场景 | ✅ |
+| F | Top-1 ≥ 85% / Top-3 ≥ 95% | ✅ |
+| G | 返回为什么匹配 | ✅ |
+| H | doctor 能诊断常见问题 | ✅ |
+| I | fix 能修复安全问题 | ✅ |
+| J | skill-manager 能被 Claude 自动触发 | ✅ |
+| K | 不会频繁误触发 | ✅ |
+
+下一阶段：
+- Antigravity 适配（stub 转 real）
+- Codex 适配
+- 多 agent 共享 catalog
+- Docker 集成测试沙箱
+
 ## Safety model
 
 1. `--dry-run` performs validation and prints the plan without network, filesystem, link, smoke-test, or memory changes.

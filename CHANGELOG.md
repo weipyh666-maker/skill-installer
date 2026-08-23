@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.1.2] — 2026-08-23
+
+### Claude 1.0 毕业冻结
+
+skill-manager v3.1.2 锁定 Claude 1.0 全部核心能力：
+
+- scan / catalog / capabilities / refresh / find / doctor / fix 全部通过 11 项毕业测试
+- Find Benchmark：Top-1 96% / Top-3 100%（50 题）
+- Auto-trigger：positive 100% / negative 100%（22 题）
+- Trigger quality：8 条规则 + 全库评分
+- 安全：symlink 拒绝、敏感文件拒绝、token 校验
+
+Claude 1.0 范围外（下阶段）：
+- Antigravity / Codex 真实适配器
+- 跨 agent 共享 catalog
+- Docker 集成测试沙箱
+- semantic search / embeddings
+
 ## [3.1.1] — 2026-08-23
 
 ### Added

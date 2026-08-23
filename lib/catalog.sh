@@ -776,6 +776,12 @@ def score_skill_entry(entry, query, terms):
             if t not in hit_desc:
                 hit_desc.append(t)
             
+    if any(w in q_lower for w in ["装", "哪些", "what skills", "list my skills", "list skills", "what skill"]):
+        if name == "skill-manager":
+            score_val += 150
+            if "skill-manager" not in hit_name:
+                hit_name.append("skill-manager")
+
     is_ppt = any(w in q_lower for w in ("ppt", "pptx", "幻灯片", "powerpoint", "presentation", "slide"))
     if is_ppt and name not in ("pptx", "frontend-slides", "pptx-translator", "theme-factory", "storytelling-expert"):
         score_val -= 20
@@ -1396,6 +1402,17 @@ def fix_skill(entry, is_dry_run, confirm_yes):
         print(f"Skipping {entry['name']}: SKILL.md not found")
         return
 
+    # Check for sensitive files before fixing
+    sensitive_matches = []
+    for root_dir, _, files in os.walk(str(target_disk)):
+        for f in files:
+            f_lower = f.lower()
+            if f_lower == ".env" or f_lower.startswith(".env.") or f_lower.endswith((".key", ".pem", ".p12", ".pfx")):
+                sensitive_matches.append(os.path.join(root_dir, f))
+    if sensitive_matches:
+        print(f"refusing to copy sensitive file: {sensitive_matches[0]}")
+        return
+
     try:
         raw_content = target_file.read_text(encoding="utf-8")
     except Exception as ex:
@@ -1554,7 +1571,7 @@ try:
         if json_output:
             print(json.dumps(entry, ensure_ascii=False, indent=2))
         else:
-            for key in ("name", "install_name", "description", "category", "source", "provenance", "source_path", "link_path", "discovered_at", "installed_at", "commit", "sha256", "status", "health"):
+            for key in ("name", "install_name", "description", "capabilities", "category", "source", "provenance", "source_path", "link_path", "discovered_at", "installed_at", "commit", "sha256", "status", "health"):
                 val = entry.get(key)
                 if key == "capabilities":
                     val = ", ".join(entry.get("capabilities", []))

@@ -232,6 +232,14 @@ function Get-SkillScoreAndReason($Entry, [string]$Query, [string[]]$Terms) {
         }
     }
 
+    $isMetaSkills = ($qLower.Contains('装') -or $qLower.Contains('哪些') -or $qLower.Contains('what skills') -or $qLower.Contains('list my skills') -or $qLower.Contains('list skills'))
+    if ($isMetaSkills) {
+        if ($name -eq 'skill-manager') {
+            $score += 150
+            if (-not $hitName.Contains('skill-manager')) { $hitName.Add('skill-manager') }
+        }
+    }
+
     $isPpt = ($qLower.Contains('ppt') -or $qLower.Contains('pptx') -or $qLower.Contains('幻灯片') -or $qLower.Contains('powerpoint') -or $qLower.Contains('presentation') -or $qLower.Contains('slide'))
     if ($isPpt -and $name -notin @('pptx', 'frontend-slides', 'pptx-translator', 'theme-factory', 'storytelling-expert')) {
         $score -= 20
