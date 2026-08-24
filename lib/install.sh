@@ -37,6 +37,8 @@ source "$SCRIPT_DIR/../adapters/antigravity/paths.sh"
 source "$SCRIPT_DIR/../adapters/antigravity/detect.sh"
 source "$SCRIPT_DIR/../adapters/codex/paths.sh"
 source "$SCRIPT_DIR/../adapters/codex/detect.sh"
+source "$SCRIPT_DIR/../adapters/deepseek-harness/paths.sh"
+source "$SCRIPT_DIR/../adapters/deepseek-harness/detect.sh"
 
 usage() {
     sed -n '1,35p' "$0"
@@ -47,7 +49,7 @@ Options:
   --ref branch|tag|sha       Git ref; pin this for reproducible installs
   --local PATH               Local skill directory
   --name NAME                Installed skill name
-  --agent AGENT              Target agent (claude|codex|antigravity, default: claude)
+  --agent AGENT              Target agent (claude|codex|antigravity|deepseek-harness, default: claude)
   --link-only                Recreate a link from an existing source
   --force                    Replace an existing install after backing it up
   --dry-run                  Validate and print the plan without changing files
@@ -275,7 +277,7 @@ while [[ $# -gt 0 ]]; do
         --local)             [[ $# -ge 2 ]] || fail '--local needs a directory'; LOCAL_PATH="$2"; shift 2 ;;
         --name)              [[ $# -ge 2 ]] || fail '--name needs a value'; NAME="$2"; NAME_WAS_EXPLICIT=1; shift 2 ;;
         --agent)             [[ $# -ge 2 ]] || fail '--agent needs a value'; AGENT="$2"; shift 2 ;;
-        --scope)             [[ $# -ge 2 ]] || fail '--scope needs user or codex-home'; SCOPE="$2"; shift 2 ;;
+        --scope)             [[ $# -ge 2 ]] || fail '--scope needs user, codex-home, user-agents, or project'; SCOPE="$2"; shift 2 ;;
         --subdir)            [[ $# -ge 2 ]] || fail '--subdir needs a staging-tree path'; SUBDIR="$2"; shift 2 ;;
         --link-only)         LINK_ONLY=1; shift ;;
         --force)             FORCE=1; shift ;;
@@ -333,6 +335,13 @@ if [[ "$AGENT" == "codex" ]]; then
     LINK_BASE="$SKILLS_DIR"
     BUILTIN_DIR="$(get_codex_system_skill_root)"
     BACKUP_ROOT="$(get_codex_home)/skill-manager/backups"
+elif [[ "$AGENT" == "deepseek-harness" ]]; then
+    [[ "$LINK_ONLY" -eq 0 ]] || fail 'DeepSeek Harness uses direct discovery roots and does not support --link-only'
+    [[ "$SCOPE" == 'user' || "$SCOPE" == 'user-agents' || "$SCOPE" == 'project' ]] || fail '--scope must be user, user-agents, or project for DeepSeek Harness'
+    SKILLS_DIR="$(get_dsh_install_root "$SCOPE")"
+    LINK_BASE="$SKILLS_DIR"
+    BUILTIN_DIR=""
+    BACKUP_ROOT="$(get_dsh_home)/skill-manager/backups"
 elif [[ "$AGENT" == "antigravity" ]]; then
     SKILLS_DIR="$(get_antigravity_source_dir)"
     LINK_BASE="$(get_antigravity_link_dir)"
@@ -352,6 +361,8 @@ if [[ "$AGENT" == "codex" ]]; then
     if [[ "$target_full" == "$system_full" || "$target_full" == "$system_full/"* ]]; then
         fail "Refusing to modify protected Codex SYSTEM Skill."
     fi
+elif [[ "$AGENT" == "deepseek-harness" ]]; then
+    is_dsh_protected_target "$SOURCE_PATH" && fail 'Refusing to install into the bundled skill root or the reserved DSH .system namespace.'
 elif [[ -n "$BUILTIN_DIR" && -d "$BUILTIN_DIR" ]]; then
     target_full="$(canonical_path "$SOURCE_PATH")"
     builtin_full="$(canonical_path "$BUILTIN_DIR")"

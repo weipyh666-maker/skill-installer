@@ -24,7 +24,7 @@ param(
     [switch]$SkipCatalogUpdate,
     [string]$ExpectedSha256,
     [string]$Agent,
-    [ValidateSet('user', 'codex-home')]
+    [ValidateSet('user', 'codex-home', 'user-agents', 'project')]
     [string]$Scope = 'user',
     [string]$Subdir,
     [switch]$RequirePinnedRef,
@@ -40,6 +40,8 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\..\adapters\antigravity\detect.ps1"
 . "$PSScriptRoot\..\adapters\codex\paths.ps1"
 . "$PSScriptRoot\..\adapters\codex\detect.ps1"
+. "$PSScriptRoot\..\adapters\deepseek-harness\paths.ps1"
+. "$PSScriptRoot\..\adapters\deepseek-harness\detect.ps1"
 $IsWindowsHost = $env:OS -eq 'Windows_NT'
 $TempRoot = $null
 $Mode = $null
@@ -281,6 +283,12 @@ try {
         $LinkBase = $SkillsDir
         $BuiltinDir = Get-CodexSystemSkillRoot
         $BackupRoot = Join-Path (Get-CodexHome) 'skill-manager\backups'
+    } elseif ($resolvedAgent -eq 'deepseek-harness') {
+        if ($LinkOnly) { Fail 'DeepSeek Harness uses direct discovery roots and does not support LinkOnly.' }
+        $SkillsDir = Get-DshInstallRoot $Scope (Get-DshCwd)
+        $LinkBase = $SkillsDir
+        $BuiltinDir = $null
+        $BackupRoot = Join-Path (Get-DshHome) 'skill-manager\backups'
     } elseif ($resolvedAgent -eq 'antigravity') {
         $SkillsDir = Get-AntigravitySourceDir
         $LinkBase = Get-AntigravityLinkDir
@@ -297,6 +305,7 @@ try {
     Assert-ChildPath $LinkBase $LinkPath 'Link path'
 
     if ($resolvedAgent -eq 'codex' -and (Test-CodexProtectedTarget $SourcePath)) { Fail 'Refusing to modify protected Codex SYSTEM Skill.' }
+    if ($resolvedAgent -eq 'deepseek-harness' -and (Test-DshProtectedTarget $SourcePath)) { Fail 'Refusing to install into the bundled skill root or the reserved DSH .system namespace.' }
 
     if ($BuiltinDir -and (Test-Path -LiteralPath $BuiltinDir)) {
         $builtinFull = (Get-FullPath $BuiltinDir).TrimEnd('\')

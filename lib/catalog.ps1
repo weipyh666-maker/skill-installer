@@ -25,6 +25,8 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\..\adapters\antigravity\detect.ps1"
 . "$PSScriptRoot\..\adapters\codex\paths.ps1"
 . "$PSScriptRoot\..\adapters\codex\detect.ps1"
+. "$PSScriptRoot\..\adapters\deepseek-harness\paths.ps1"
+. "$PSScriptRoot\..\adapters\deepseek-harness\detect.ps1"
 . "$PSScriptRoot\..\core\search.ps1"
 . "$PSScriptRoot\..\core\doctor.ps1"
 
@@ -57,6 +59,10 @@ if ($resolvedAgent -eq 'codex') {
     $SkillsDir = Get-FullPath (Get-CodexUserSkillRoot)
     $LinkDir = Get-FullPath (Get-CodexCompatibilitySkillRoot)
     $IndexPath = Get-FullPath (Get-CodexIndexPath)
+} elseif ($resolvedAgent -eq 'deepseek-harness') {
+    $SkillsDir = Get-FullPath (Get-DshUserSkillRoot)
+    $LinkDir = Get-FullPath (Get-DshSharedSkillRoot)
+    $IndexPath = Get-FullPath (Get-DshIndexPath)
 } elseif ($resolvedAgent -eq 'antigravity') {
     $SkillsDir = Get-FullPath $AntigravitySkillsDir
     $LinkDir = Get-FullPath $AntigravityLinkDir
@@ -332,6 +338,14 @@ function ConvertTo-V3Index($raw) {
                 }
             }
 
+            if (-not $agentsObj.Contains('deepseek-harness')) {
+                $agentsObj['deepseek-harness'] = [ordered]@{
+                    visible = $false
+                    path = $null
+                    reason = 'not installed for deepseek-harness'
+                }
+            }
+
             $e['agents'] = [pscustomobject]$agentsObj
             $skills += [pscustomobject]$e
         }
@@ -466,8 +480,227 @@ function Build-CodexIndex {
     return [ordered]@{ schema_version=3; default_agent='codex'; updated_at=[DateTime]::UtcNow.ToString('o'); skills=@($entries); codex_config_external=$external }
 }
 
+function Get-DshFrontmatterBool([string]$Frontmatter, [string]$Key) {
+    $m = [regex]::Match($Frontmatter, "(?mi)^$([regex]::Escape($Key)):\s*([^#\r\n]+)")
+    if (-not $m.Success) { return $null }
+    $value = $m.Groups[1].Value.Trim().Trim('"').Trim("'").ToLowerInvariant()
+    if ($value -in @('true', 'yes', 'on', '1')) { return $true }
+    if ($value -in @('false', 'no', 'off', '0')) { return $false }
+    return $null
+}
+
+function Get-DshSkillCandidates {
+    $items = [System.Collections.Generic.List[object]]::new()
+    $rootOrder = 0
+    foreach ($root in (Get-DshDiscoveryRoots)) {
+        $order = $rootOrder
+        $rootOrder += 1
+        if (-not (Test-Path -LiteralPath $root.path -PathType Container)) { continue }
+        foreach ($entry in (Get-ChildItem -LiteralPath $root.path -Force -ErrorAction SilentlyContinue)) {
+            $entryName = $entry.Name
+            if ($root.system_reserved -and $entryName -eq '.system') { continue }
+            $locator = $null
+            if ($entry.PSIsContainer) {
+                $skillFile = Join-Path $entry.FullName 'SKILL.md'
+                if (Test-Path -LiteralPath $skillFile -PathType Leaf) {
+                    $locator = [pscustomobject]@{ skill_path = $skillFile; directory = $entry.FullName }
+                }
+            } elseif ($entryName.EndsWith('.md')) {
+                $locator = [pscustomobject]@{ skill_path = $entry.FullName; directory = $root.path }
+            }
+            if ($null -eq $locator) { continue }
+            $items.Add([pscustomobject]@{ Root = $root; RootOrder = $order; SkillPath = $locator.skill_path; Directory = $locator.directory })
+        }
+    }
+    return @($items)
+}
+
+function Build-DeepSeekHarnessIndex {
+    $byName = @{}
+    $preset = Get-DshPresetState
+    foreach ($candidate in (Get-DshSkillCandidates)) {
+        $raw = ''
+        try { $raw = Get-Content -LiteralPath $candidate.SkillPath -Raw -Encoding UTF8 } catch {}
+        $match = [regex]::Match($raw, '(?ms)^---\s*\r?\n(.*?)\r?\n---')
+        $frontmatter = if ($match.Success) { $match.Groups[1].Value } else { '' }
+        $declared = Get-FrontmatterField $frontmatter 'name'
+        $dirName = if ($candidate.Directory -eq $candidate.Root.path) { [IO.Path]::GetFileNameWithoutExtension($candidate.SkillPath) } else { Split-Path -Leaf $candidate.Directory }
+        $name = if ($declared) { $declared } else { $dirName }
+        $description = Get-FrontmatterField $frontmatter 'description'
+        $validName = ($name -match '^[a-z0-9]+(?:-[a-z0-9]+)*$')
+        $hasLegacy = ($frontmatter -match '(?mi)^(disableModelInvocation|modelInvocable|userInvocable)\s*:')
+        $dmi = Get-DshFrontmatterBool $frontmatter 'disable-model-invocation'
+        $ui = Get-DshFrontmatterBool $frontmatter 'user-invocable'
+        $invalidInvocation = $hasLegacy -or ($frontmatter -match '(?mi)^disable-model-invocation\s*:' -and $null -eq $dmi) -or ($frontmatter -match '(?mi)^user-invocable\s*:' -and $null -eq $ui)
+        $dshValid = $validName -and [bool]$description -and -not $invalidInvocation
+        $modelInvocable = if ($null -eq $dmi) { $true } else { -not $dmi }
+        $userInvocable = if ($null -eq $ui) { $true } else { $ui }
+        $category = Get-Category (Get-FrontmatterField $frontmatter 'category') $name $description (Get-Keywords $name $description)
+        $capabilities = @(Get-Capabilities $frontmatter $name $category (Get-Keywords $name $description))
+        $variant = [ordered]@{
+            path = $candidate.Directory
+            skill_path = $candidate.SkillPath
+            scope = $candidate.Root.scope
+            class = $candidate.Root.class
+            rank = $candidate.Root.rank
+            protected = $false
+            platform_protected = $candidate.Root.platform_protected
+            enabled = $true
+            write_policy = $candidate.Root.write_policy
+            model_invocable = $modelInvocable
+            user_invocable = $userInvocable
+            dsh_valid = $dshValid
+            description = $description
+            category = $category
+            capabilities = $capabilities
+            frontmatter = $frontmatter
+            sha256 = (Get-FileHash -LiteralPath $candidate.SkillPath -Algorithm SHA256).Hash
+            root_order = $candidate.RootOrder
+        }
+        if (-not $byName.ContainsKey($name)) { $byName[$name] = [System.Collections.Generic.List[object]]::new() }
+        $byName[$name].Add([pscustomobject]$variant)
+    }
+
+    $DshConsumer = $preset.Consumer
+    $DshProvider = $preset.ProviderEnabled
+    $entries = [System.Collections.Generic.List[object]]::new()
+    foreach ($name in ($byName.Keys | Sort-Object)) {
+        $variants = @($byName[$name] | Sort-Object { $_.rank }, { $_.root_order }, { $_.path })
+        $validVariants = @($variants | Where-Object { $_.dsh_valid })
+        $winner = if ($validVariants.Count -gt 0) { $validVariants[0] } else { $null }
+        $discoverable = $validVariants.Count -gt 0
+        $eligible = ($null -ne $winner) -and $winner.model_invocable
+        $isDuplicate = $validVariants.Count -gt 1
+        $frontmatters = @($variants | ForEach-Object { $_.frontmatter } | Select-Object -Unique)
+        $descriptions = @($validVariants | ForEach-Object { $_.description } | Where-Object { $_ } | Select-Object -Unique)
+        $categories = @($variants | ForEach-Object { $_.category } | Select-Object -Unique)
+        $allCapabilities = @($variants | ForEach-Object { $_.capabilities } | Select-Object -Unique)
+
+        $visible = $false
+        $conditional = $false
+        $visibilityReason = ''
+        if (-not $DshProvider) {
+            $visibilityReason = 'provider-not-enabled'
+            $conditional = $true
+        } elseif (-not $discoverable) {
+            $visibilityReason = 'not-discoverable-by-dsh'
+        } elseif (-not $eligible) {
+            $visibilityReason = 'not-model-invocable'
+        } elseif ($DshConsumer -eq 'tool-skill' -or $DshConsumer -eq 'skill-search') {
+            $visible = $true
+            $visibilityReason = if ($isDuplicate) { 'multiple-discovery-roots; within-layer-predicted-winner' } else { "discovered-in-$($winner.scope)-root" }
+        } elseif ($DshConsumer -eq 'none') {
+            $visibilityReason = 'no-catalog-consumer-mounted'
+            $conditional = $true
+        } else {
+            $visible = $eligible
+            $visibilityReason = 'consumer-unknown'
+            $conditional = $true
+        }
+
+        $paths = @($variants | ForEach-Object { [ordered]@{ path=$_.path; skill_path=$_.skill_path; scope=$_.scope; class=$_.class; rank=$_.rank; protected=$false; platform_protected=$_.platform_protected; enabled=$_.enabled; write_policy=$_.write_policy; model_invocable=$_.model_invocable; user_invocable=$_.user_invocable; dsh_valid=$_.dsh_valid } })
+        $predictedWinner = if ($null -ne $winner) { [ordered]@{ path=$winner.path; scope=$winner.scope; class=$winner.class; rank=$winner.rank } } else { $null }
+        # confirmed_visible stays null: the session catalog of another DSH process is
+        # not observable from disk, so catalog visibility is inferred, not confirmed.
+        $confirmedVisible = $null
+        $platformProtected = if ((@($variants.platform_protected) -contains 'unknown')) { 'unknown' } else { 'false' }
+        $agents = [ordered]@{
+            claude = [ordered]@{ visible=$false; path=$null; reason='not installed for claude' }
+            antigravity = [ordered]@{ visible=$false; path=$null; reason='not installed for antigravity' }
+            codex = [ordered]@{ visible=$false; path=$null; reason='not installed for codex' }
+            'deepseek-harness' = [ordered]@{
+                visible = [bool]$visible
+                discoverable = [bool]$discoverable
+                eligible = [bool]$eligible
+                expected_visible = [bool]$visible
+                confirmed_visible = $confirmedVisible
+                visibility_confidence = if ($null -ne $confirmedVisible) { 'confirmed' } else { 'inferred' }
+                visibility_status = if ($null -ne $confirmedVisible) { 'confirmed' } else { 'expected' }
+                invoked = $null
+                conditional = [bool]$conditional
+                consumer = $DshConsumer
+                reason = $visibilityReason
+                paths = $paths
+                scopes = @($variants.scope | Select-Object -Unique)
+                ranks = @($variants.rank | Select-Object -Unique)
+                providers = @('filesystem')
+                duplicate = $isDuplicate
+                precedence = if ($isDuplicate) { 'within-layer-rank' } else { $null }
+                metadata_conflict = ($frontmatters.Count -gt 1)
+                predicted_winner = $predictedWinner
+                winner_confidence = if ($validVariants.Count -le 1) { 'single-candidate' } else { 'within-layer-only' }
+                winner_basis = if ($null -ne $winner) { 'filesystem-rank-root-order' } else { $null }
+                runtime_winner = $null
+                invocation = [ordered]@{ model_invocable = if ($null -ne $winner) { $winner.model_invocable } else { $true }; user_invocable = if ($null -ne $winner) { $winner.user_invocable } else { $true } }
+                protected = $false
+                platform_protected = $platformProtected
+                enabled = $true
+                variants = $variants
+            }
+        }
+        $entries.Add([pscustomobject][ordered]@{
+            name = $name
+            install_name = $name
+            description = ($descriptions -join ' | ')
+            capabilities = $allCapabilities
+            category = if ($categories.Count -eq 1) { $categories[0] } else { 'other' }
+            source = 'deepseek-harness-discovery'
+            provenance = 'filesystem'
+            source_path = if ($paths.Count -gt 0) { $paths[0].path } else { $null }
+            link_path = ''
+            discovered_at = [DateTime]::UtcNow.ToString('o')
+            installed_at = $null
+            commit = $null
+            sha256 = $null
+            status = if ($discoverable) { 'ok' } else { 'broken' }
+            health = if ($discoverable) { 'ok' } else { 'broken' }
+            agents = [pscustomobject]$agents
+        })
+    }
+    $reserved = @()
+    if ($preset.IncludeDefaultRoots) { $reserved += (Get-DshUserSystemRoot) }
+    $dshPreset = [ordered]@{
+        active_preset = $preset.ActivePreset
+        settings_path = $preset.SettingsPath
+        preset_path = $preset.PresetPath
+        provider_enabled = $preset.ProviderEnabled
+        consumer = $preset.Consumer
+        include_default_roots = $preset.IncludeDefaultRoots
+        custom_dirs = @($preset.CustomDirs)
+        watch = $preset.Watch
+        evidence = @($preset.Evidence)
+    }
+    $allEntries = @($entries)
+    $physicalSkillEntries = 0; $duplicateNames = 0; $duplicateVariants = 0
+    $duplicateCandidateVariants = 0; $metadataConflicts = 0; $predictedWinners = 0; $confirmedRuntimeWinners = 0
+    foreach ($e in $allEntries) {
+        $d = $e.agents.'deepseek-harness'
+        $physicalSkillEntries += @($d.paths).Count
+        if ($d.duplicate) {
+            $duplicateNames += 1
+            $duplicateVariants += @($d.paths).Count
+            $duplicateCandidateVariants += @($d.paths | Where-Object { $_.dsh_valid }).Count
+        }
+        if ($d.metadata_conflict) { $metadataConflicts += 1 }
+        if ($null -ne $d.predicted_winner) { $predictedWinners += 1 }
+        if ($null -ne $d.runtime_winner) { $confirmedRuntimeWinners += 1 }
+    }
+    $dupSummary = [ordered]@{
+        physical_skill_entries = $physicalSkillEntries
+        unique_skill_names = $allEntries.Count
+        duplicate_names = $duplicateNames
+        duplicate_variants = $duplicateVariants
+        duplicate_candidate_variants = $duplicateCandidateVariants
+        metadata_conflicts = $metadataConflicts
+        predicted_winners = $predictedWinners
+        confirmed_runtime_winners = $confirmedRuntimeWinners
+    }
+    return [ordered]@{ schema_version=3; default_agent='deepseek-harness'; updated_at=[DateTime]::UtcNow.ToString('o'); skills=@($entries); dsh_preset=$dshPreset; dsh_reserved_namespace=@($reserved); dsh_duplicate_summary=$dupSummary }
+}
+
 function Build-Index {
     if ($resolvedAgent -eq 'codex') { return (Build-CodexIndex) }
+    if ($resolvedAgent -eq 'deepseek-harness') { return (Build-DeepSeekHarnessIndex) }
     $oldIndex = if (Test-Path -LiteralPath $IndexPath) {
         try {
             $raw = Get-Content -LiteralPath $IndexPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -521,6 +754,11 @@ function Build-Index {
                 visible = [bool]$antigravityVis
                 path = if ($antigravityVis) { (Join-Path $AntigravityLinkDir $name) } else { $null }
                 reason = if ($antigravityVis) { 'discovered-in-antigravity-global-skill-root' } else { 'not installed for antigravity' }
+            }
+            'deepseek-harness' = [ordered]@{
+                visible = $false
+                path = $null
+                reason = 'not installed for deepseek-harness'
             }
         }
 
@@ -642,6 +880,7 @@ function Build-Index {
                         claude = [ordered]@{ visible = $false; path = $null; reason = 'missing' }
                         codex = [ordered]@{ visible = $false; path = $null; reason = 'not installed for codex' }
                         antigravity = [ordered]@{ visible = $false; path = $null; reason = 'missing' }
+                        'deepseek-harness' = [ordered]@{ visible = $false; path = $null; reason = 'not installed for deepseek-harness' }
                     }
                 }
                 $entries.Add([pscustomobject]$missingEntry)
@@ -843,6 +1082,38 @@ function Invoke-DoctorGlobal($IndexData) {
             Write-Host "  ⚠ Duplicate Codex Skill name: $($entry.name)"
             foreach ($path in $entry.agents.codex.paths) { Write-Host "    - $($path.path) [$($path.scope)/$($path.class)]" }
             Write-Host '    Codex precedence is undocumented; skill-manager will not choose a winner.'
+        }
+        return
+    } elseif ($resolvedAgent -eq 'deepseek-harness') {
+        $status = Get-DshStatus
+        $state = Get-DshPresetState
+        $duplicates = @($targetSkills | Where-Object { $_.agents.'deepseek-harness'.duplicate })
+        Write-Host "doctor: scanned $scannedCount skills for agent 'deepseek-harness'"
+        Write-Host "  CLI resolved: $($status.CliResolved)"
+        Write-Host "  CLI executable test: $($status.ExecutableTest)"
+        Write-Host "  DSH_HOME: $($status.DshHome)"
+        Write-Host "  user root: $($status.UserRoot)"
+        Write-Host "  shared root: $($status.SharedRoot)"
+        if ($status.BundledDir) { Write-Host "  bundled root: $($status.BundledDir) (diagnostic-only)" }
+        Write-Host "  provider enabled: $($status.ProviderEnabled)"
+        if ($status.Consumer -eq 'none') { Write-Host "  consumer: none (skills discoverable but not catalog-visible)" }
+        elseif ($status.Consumer -eq 'unknown') { Write-Host '  consumer: unknown (catalog visibility not confirmable)' }
+        else { Write-Host "  consumer: $($status.Consumer)" }
+        Write-Host '  catalog visibility: expected (inferred from preset composition; not confirmed from a live session)'
+        if ($null -ne $state.Watch) {
+            if ($state.Watch) { Write-Host '  watch: enabled (no restart needed; skill-manager does not verify the watcher is running)' }
+            else { Write-Host '  watch: disabled - session catalog may not refresh automatically; a restart may be needed' }
+        } else {
+            Write-Host '  watch: not specified (DSH default is enabled; no restart recommended)'
+        }
+        if ($state.IncludeDefaultRoots) { Write-Host "  reserved .system namespace: $(Get-DshUserSystemRoot) (skipped; not a system-skill root; manager write policy: refuse)" }
+        Write-Host "  healthy: $healthyCount"
+        foreach ($entry in $duplicates) {
+            Write-Host "  ⚠ Duplicate DeepSeek Harness Skill name: $($entry.name)"
+            foreach ($path in $entry.agents.'deepseek-harness'.paths) { Write-Host "    - $($path.path) [$($path.scope)/$($path.class) rank=$($path.rank) write_policy=$($path.write_policy)]" }
+            $winner = $entry.agents.'deepseek-harness'.predicted_winner
+            if ($winner) { Write-Host "    predicted within-layer winner: $($winner.path) (rank $($winner.rank); basis: filesystem-rank-root-order)" }
+            Write-Host '    Within-layer DSH rule (rank asc -> root order -> name order, first wins) is verified; cross-layer shadowing is not observable from disk; skill-manager does not claim a runtime winner.'
         }
         return
     } elseif ($resolvedAgent -eq 'antigravity') {
@@ -1269,6 +1540,15 @@ function Invoke-FixSkill($Entry, [bool]$IsDryRun, [bool]$ConfirmYes) {
         if ($writable.Count -ne 1) { throw 'Refusing to modify Codex Skill outside the single writable user root.' }
         $sourceDisk = $writable[0].path
         $linkDisk = $sourceDisk
+    } elseif ($resolvedAgent -eq 'deepseek-harness') {
+        $dshInfo = $Entry.agents.'deepseek-harness'
+        $dshPaths = @($dshInfo.paths)
+        if (@($dshPaths | Where-Object { $_.write_policy -eq 'diagnostic-only' }).Count -gt 0) { throw 'Refusing to modify a diagnostic-only DeepSeek Harness skill (bundled or custom root).' }
+        $writable = @($dshPaths | Where-Object { $_.scope -eq 'user' -and $_.class -eq 'user-dsh' -and $_.write_policy -eq 'writable' })
+        if ($writable.Count -ne 1) { throw 'Refusing to modify DeepSeek Harness Skill outside the single writable user-dsh root.' }
+        if (-not $writable[0].dsh_valid) { throw 'Refusing to modify a DeepSeek Harness skill that DSH would reject (invalid name or legacy invocation keys).' }
+        $sourceDisk = $writable[0].path
+        $linkDisk = $sourceDisk
     } else {
         $sourceDisk = Join-Path $SkillsDir $dirName
         $linkDisk = Join-Path $LinkDir $dirName
@@ -1349,7 +1629,7 @@ function Invoke-FixSkill($Entry, [bool]$IsDryRun, [bool]$ConfirmYes) {
         }
         Write-Host "`ncategory (added):`n  $newCat`n"
         $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
-        $backupPreview = if ($resolvedAgent -eq 'codex') { (Join-Path (Get-CodexHome) 'skill-manager\backups') } else { (Join-Path $SkillsDir '.backups') }
+        $backupPreview = if ($resolvedAgent -eq 'codex') { (Join-Path (Get-CodexHome) 'skill-manager\backups') } elseif ($resolvedAgent -eq 'deepseek-harness') { (Get-DshBackupRoot) } else { (Join-Path $SkillsDir '.backups') }
         Write-Host "no symlink. backup would go to: $backupPreview/$($Entry.name)-$ts-SKILL.md`n"
         return
     }
@@ -1366,7 +1646,7 @@ function Invoke-FixSkill($Entry, [bool]$IsDryRun, [bool]$ConfirmYes) {
         }
     }
 
-    $backupDir = if ($resolvedAgent -eq 'codex') { Join-Path (Get-CodexHome) 'skill-manager\backups' } else { Join-Path $SkillsDir '.backups' }
+    $backupDir = if ($resolvedAgent -eq 'codex') { Join-Path (Get-CodexHome) 'skill-manager\backups' } elseif ($resolvedAgent -eq 'deepseek-harness') { Get-DshBackupRoot } else { Join-Path $SkillsDir '.backups' }
     if (-not (Test-Path -LiteralPath $backupDir)) {
         New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
     }
@@ -1505,7 +1785,7 @@ switch ($Command) {
                 if ($key -eq 'capabilities' -and $val) { $val = ($val -join ', ') }
                 Write-Host "$($key): $val"
             }
-            foreach ($ag in @('claude', 'codex', 'antigravity')) {
+            foreach ($ag in @('claude', 'codex', 'antigravity', 'deepseek-harness')) {
                 $vis = if ($entry.agents -and $entry.agents.$ag) { $entry.agents.$ag.visible } else { $false }
                 Write-Host "agents.$($ag).visible: $vis"
             }

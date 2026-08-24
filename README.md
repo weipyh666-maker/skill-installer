@@ -1,6 +1,6 @@
 # skill-manager
 
-A multi-agent Skill Manager for discovering, searching, diagnosing, and safely managing installed Agent Skills across AI agents (Claude Code, Antigravity CLI, Codex CLI).
+A multi-agent Skill Manager for discovering, searching, diagnosing, and safely managing installed Agent Skills across AI agents (Claude Code, Antigravity CLI, Codex CLI, DeepSeek Harness).
 
 ## What it solves
 
@@ -27,8 +27,11 @@ A multi-agent Skill Manager for discovering, searching, diagnosing, and safely m
 | **Claude Code** | `adapters/claude/` | **Supported** (v1.0) | `~/.claude/skills/` (links to `~/Claude-Code/`) |
 | **Antigravity** | `adapters/antigravity/` | **Supported** (v1.0 / v3.2.0) | `~/.agents/skills/` |
 | **OpenAI Codex** | `adapters/codex/` | **Supported** (Codex 1.0) | `~/.agents/skills/` |
+| **DeepSeek Harness** | `adapters/deepseek-harness/` | **Experimental** | `~/.dsh/skills/` |
 
 Codex uses multiple discovery roots. The documented user root is `~/.agents/skills/`; repository ancestors use `.agents/skills/`; `$CODEX_HOME/skills/` is the compatibility/official-installer root; `$CODEX_HOME/skills/.system/` is read-only protected. Duplicate names retain all paths and report `precedence=unknown`.
+
+DeepSeek Harness (Experimental, not yet Supported) discovers from `project-dsh` (`<gitRoot>/.dsh/skills`, rank 100), `project-agents` (`<gitRoot>/.agents/skills`, 200), `custom` (preset `customSkillDirs`, 300), `user-dsh` (`$DSH_HOME/skills`, 400), `user-agents` (`$DSH_AGENTS_HOME`/`~/.agents/skills`, 500), and `bundled` (`bundledSkillDir`/`$DSH_BUNDLED_SKILL_DIR`, 600) roots. Rank resolves duplicates only within a provider layer (verified DSH rule); the catalog reports a predicted within-layer winner and never claims a cross-layer runtime winner. `~/.dsh/skills` is the default install target; `~/.agents/skills` alone never makes the harness `usable`. The reserved `$DSH_HOME/skills/.system` namespace is skipped, not a system-skill root, and no DSH root is marked protected (skill-manager's own write policy is carried per variant as `write_policy`).
 
 ## Requirements
 
@@ -79,6 +82,9 @@ pwsh -File lib\catalog.ps1 -Command doctor -Name frontend-design
 # Re-scan filesystem and refresh catalog index
 pwsh -File lib\catalog.ps1 -Command refresh
 pwsh -File lib\catalog.ps1 -Command refresh -Agent antigravity
+
+# DeepSeek Harness (Experimental): doctor with provider/consumer state
+pwsh -File lib\catalog.ps1 -Command doctor -Agent deepseek-harness
 ~~~
 
 ~~~bash
@@ -108,6 +114,9 @@ bash lib/catalog.sh --doctor --name frontend-design
 # Re-scan filesystem and refresh catalog index
 bash lib/catalog.sh --refresh
 bash lib/catalog.sh --refresh --agent antigravity
+
+# DeepSeek Harness (Experimental): doctor with provider/consumer state
+bash lib/catalog.sh --doctor --agent deepseek-harness
 ~~~
 
 ### Installing and updating skills
@@ -122,6 +131,11 @@ pwsh -File lib\install.ps1 -Repo owner/skill-name -Ref v1.0.0 -Agent antigravity
 # Install from a local directory into Antigravity
 pwsh -File lib\install.ps1 -LocalPath ./my-local-skill -Name my-local-skill -Agent antigravity
 
+# Install into DeepSeek Harness (Experimental): user root (~/.dsh/skills, default) or shared target
+pwsh -File lib\install.ps1 -Repo owner/skill-name -Agent deepseek-harness
+pwsh -File lib\install.ps1 -Repo owner/skill-name -Agent deepseek-harness -Scope user-agents
+pwsh -File lib\install.ps1 -Repo owner/skill-name -Agent deepseek-harness -Scope project
+
 # Install a reviewed, pinned ref with expected digest
 pwsh -File lib\install.ps1 -Repo owner/skill-name -Ref 0123456789abcdef0123456789abcdef01234567 -ExpectedSha256 64-character-sha256
 ~~~
@@ -135,6 +149,10 @@ bash lib/install.sh --repo owner/skill-name --ref v1.0.0 --agent antigravity
 
 # Install from a local directory into Antigravity
 bash lib/install.sh --local ./my-local-skill --name my-local-skill --agent antigravity
+
+# Install into DeepSeek Harness (Experimental): user root (~/.dsh/skills, default) or shared target
+bash lib/install.sh --repo owner/skill-name --agent deepseek-harness
+bash lib/install.sh --repo owner/skill-name --agent deepseek-harness --scope user-agents
 ~~~
 
 ## Environment variables
@@ -152,6 +170,10 @@ bash lib/install.sh --local ./my-local-skill --name my-local-skill --agent antig
 | `SKIP_SMOKE_TEST` | unset | Compatibility override for smoke tests |
 | `SKIP_MEMORY_UPDATE` | unset | Compatibility override for memory updates |
 | `SKIP_CATALOG_UPDATE` | unset | Compatibility override for catalog refresh |
+| `SKILL_MANAGER_DSH_HOME` | `$DSH_HOME` / `~/.dsh` | DeepSeek Harness home override (user-dsh root, index, backups) |
+| `SKILL_MANAGER_DSH_AGENTS_HOME` | `$DSH_AGENTS_HOME` / `~/.agents` | Shared agents root override (user-agents root) |
+| `SKILL_MANAGER_DSH_BUNDLED_DIR` | `$DSH_BUNDLED_SKILL_DIR` | Bundled skill root override (diagnostic-only) |
+| `SKILL_MANAGER_DSH_CWD` / `SKILL_MANAGER_DSH_INDEX_PATH` / `SKILL_MANAGER_DSH_CLI_PATH` / `SKILL_MANAGER_DSH_SETTINGS_PATH` / `SKILL_MANAGER_DSH_PRESET` | unset | DeepSeek Harness test/diagnostic overrides (mirror the Codex pattern) |
 
 ## Repository layout
 
@@ -168,6 +190,7 @@ skill-manager/
 │   ├── claude/ (paths, detect)
 │   ├── antigravity/ (paths, detect, README.md)
 │   └── codex/ (paths, detect, README.md)
+│   └── deepseek-harness/ (paths, detect, README.md) — Experimental
 ├── core/
 │   ├── scanner.ps1 / scanner.sh
 │   ├── search.ps1 / search.sh
@@ -184,6 +207,8 @@ skill-manager/
     ├── test-auto-trigger.ps1 / test-auto-trigger.sh
     ├── test-graduation.ps1 / test-graduation.sh
     ├── test-antigravity.ps1 / test-antigravity.sh
+    ├── test-codex.ps1 / test-codex.sh
+    ├── test-deepseek-harness.ps1 / test-deepseek-harness.sh — Experimental
     └── fixtures/
 ~~~
 
@@ -196,6 +221,7 @@ pwsh -NoProfile -File tests\test-find-benchmark.ps1
 pwsh -NoProfile -File tests\test-auto-trigger.ps1
 pwsh -NoProfile -File tests\test-graduation.ps1
 pwsh -NoProfile -File tests\test-antigravity.ps1
+pwsh -NoProfile -File tests\test-deepseek-harness.ps1
 ~~~
 
 ~~~bash
@@ -205,6 +231,7 @@ bash tests/test-find-benchmark.sh
 bash tests/test-auto-trigger.sh
 bash tests/test-graduation.sh
 bash tests/test-antigravity.sh
+bash tests/test-deepseek-harness.sh
 ~~~
 
 ## License

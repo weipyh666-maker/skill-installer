@@ -1,6 +1,6 @@
 # adapters/_base.ps1 - Base multi-agent adapter specifications
 
-$global:SupportedAgents = @('claude', 'codex', 'antigravity')
+$global:SupportedAgents = @('claude', 'codex', 'antigravity', 'deepseek-harness')
 
 function Resolve-AgentName([string]$Requested) {
     if ($Requested) { return $Requested.ToLowerInvariant() }

@@ -1,11 +1,11 @@
 ---
 name: skill-manager
-description: Use when the user wants to know what skills their agent has installed, asks what the agent can do, searches for a skill by capability rather than by name, suspects an installed skill is not being triggered automatically, asks whether a skill exists for a task, cannot recall the name of a previously-installed skill, says an installed skill looks broken or is not working, wants to inspect skill health, wants to install or update a skill, wants to scan a directory for previously-installed skills not yet cataloged, asks for a summary of installed capabilities by category, asks which installed skill can perform a task by natural-language description (e.g. 哪个 skill 能做网页 UI, is there a skill that handles PDFs), wants to improve an existing skill's SKILL.md frontmatter so AI agents can auto-discover it more reliably, or wants to manage skills across Claude Code, Antigravity CLI, and Codex CLI from a single catalog.
+description: Use when the user wants to know what skills their agent has installed, asks what the agent can do, searches for a skill by capability rather than by name, suspects an installed skill is not being triggered automatically, asks whether a skill exists for a task, cannot recall the name of a previously-installed skill, says an installed skill looks broken or is not working, wants to inspect skill health, wants to install or update a skill, wants to scan a directory for previously-installed skills not yet cataloged, asks for a summary of installed capabilities by category, asks which installed skill can perform a task by natural-language description (e.g. 哪个 skill 能做网页 UI, is there a skill that handles PDFs), wants to improve an existing skill's SKILL.md frontmatter so AI agents can auto-discover it more reliably, or wants to manage skills across Claude Code, Antigravity CLI, Codex CLI, and DeepSeek Harness (Experimental) from a single catalog.
 ---
 
 # Skill Manager
 
-Supports Claude Code, Antigravity CLI, and OpenAI Codex with shared catalog, Find, Doctor, and safe installation workflows.
+Supports Claude Code, Antigravity CLI, and OpenAI Codex with shared catalog, Find, Doctor, and safe installation workflows. A DeepSeek Harness adapter is available in **Experimental** status (not yet Supported).
 
 ## Core principle
 
@@ -13,7 +13,7 @@ Know what skills your agent has installed, organize and inspect them by capabili
 
 ## Use this skill when
 
-- The user wants an overview of available capabilities or installed skills across agents (`claude`, `antigravity`, `codex`).
+- The user wants an overview of available capabilities or installed skills across agents (`claude`, `antigravity`, `codex`, `deepseek-harness`).
 - The user asks what the agent can do or wants to search for a skill by capability.
 - The user cannot recall the exact name of a previously installed skill.
 - The user suspects an installed skill is broken, missing, or not being triggered by the agent.
@@ -40,7 +40,7 @@ Know what skills your agent has installed, organize and inspect them by capabili
 
 4. **Installing & Linking**:
    - Install public GitHub skills directly (anonymous fallback supported) or use `-RequireAuth` / `--require-auth` for private repos.
-   - Specify target agent with `-Agent antigravity` (installs to `~/.agents/skills`), `-Agent codex` (defaults to `~/.agents/skills`; use `-Scope codex-home` for `$CODEX_HOME/skills`), or default `-Agent claude` (installs to `~/Claude-Code` with link to `~/.claude/skills`).
+   - Specify target agent with `-Agent antigravity` (installs to `~/.agents/skills`), `-Agent codex` (defaults to `~/.agents/skills`; use `-Scope codex-home` for `$CODEX_HOME/skills`), `-Agent deepseek-harness` (defaults to `~/.dsh/skills`; optional `-Scope user-agents` shared or `project`), or default `-Agent claude` (installs to `~/Claude-Code` with link to `~/.claude/skills`).
    - Pin refs and check hashes where available (`-Ref`, `-ExpectedSha256`).
    - Back up existing versions automatically on `-Force`.
 
@@ -50,6 +50,7 @@ Know what skills your agent has installed, organize and inspect them by capabili
 - Never execute downloaded code without explicit `-RunSmokeTest`.
 - Reject symbolic links, junctions, or other reparse points inside downloaded sources.
 - Block installations into protected agent directories (e.g. Antigravity builtin skills `~/.gemini/antigravity-cli/builtin/skills/`).
+- Refuse DeepSeek Harness bundled roots and the reserved `$DSH_HOME/skills/.system` namespace (diagnostic-only).
 - Support anonymous public repository downloads, with `--require-auth` available to enforce authentication.
 - Track provenance accurately (`installer`, `manual`, `unknown`).
 

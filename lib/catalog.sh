@@ -35,7 +35,7 @@ Usage:
   catalog.sh --fix [--name NAME] [--dry-run] [--yes] [--agent AGENT]
   catalog.sh --json --list
 
-Supported agents: claude (default), codex, antigravity
+Supported agents: claude (default), codex, antigravity, deepseek-harness
 Catalog commands require Python 3. Installation itself does not.
 USAGE
 }
@@ -48,6 +48,8 @@ source "$SCRIPT_DIR/../adapters/antigravity/paths.sh"
 source "$SCRIPT_DIR/../adapters/antigravity/detect.sh"
 source "$SCRIPT_DIR/../adapters/codex/paths.sh"
 source "$SCRIPT_DIR/../adapters/codex/detect.sh"
+source "$SCRIPT_DIR/../adapters/deepseek-harness/paths.sh"
+source "$SCRIPT_DIR/../adapters/deepseek-harness/detect.sh"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -128,10 +130,24 @@ codex_index_path = Path(os.environ.get("SKILL_MANAGER_CODEX_INDEX_PATH", str(cod
 codex_cwd = Path(os.environ.get("SKILL_MANAGER_CODEX_CWD", os.getcwd())).expanduser()
 codex_plugin_root = os.environ.get("SKILL_MANAGER_CODEX_PLUGIN_ROOT")
 
+dsh_home = Path(os.environ.get("SKILL_MANAGER_DSH_HOME") or ((os.environ.get("DSH_HOME") or "").strip() or str(home / ".dsh"))).expanduser()
+dsh_agents_home = Path(os.environ.get("SKILL_MANAGER_DSH_AGENTS_HOME") or os.environ.get("DSH_AGENTS_HOME") or str(home / ".agents")).expanduser()
+dsh_bundled_dir = os.environ.get("SKILL_MANAGER_DSH_BUNDLED_DIR") or os.environ.get("DSH_BUNDLED_SKILL_DIR")
+dsh_user_root = dsh_home / "skills"
+dsh_shared_root = dsh_agents_home / "skills"
+dsh_user_system_root = dsh_user_root / ".system"
+dsh_settings_path = Path(os.environ.get("SKILL_MANAGER_DSH_SETTINGS_PATH") or str(dsh_home / "settings.yaml")).expanduser()
+dsh_index_path = Path(os.environ.get("SKILL_MANAGER_DSH_INDEX_PATH") or str(dsh_home / "skill-manager-catalog.json")).expanduser()
+dsh_cwd = Path(os.environ.get("SKILL_MANAGER_DSH_CWD", os.getcwd())).expanduser()
+
 if selected_agent == "codex":
     skills_dir = codex_user_root
     link_dir = codex_compatibility_root
     index_path = codex_index_path
+elif selected_agent == "deepseek-harness":
+    skills_dir = dsh_user_root
+    link_dir = dsh_shared_root
+    index_path = dsh_index_path
 elif selected_agent == "antigravity":
     skills_dir = antigravity_skills_dir
     link_dir = antigravity_link_dir
@@ -496,6 +512,11 @@ def read_skill_entry(name, item_path, root_dir):
             "visible": bool(antigravity_vis),
             "path": str(antigravity_link_dir / name) if antigravity_vis else None,
             "reason": "discovered-in-antigravity-global-skill-root" if antigravity_vis else "not installed for antigravity"
+        },
+        "deepseek-harness": {
+            "visible": False,
+            "path": None,
+            "reason": "not installed for deepseek-harness"
         }
     }
 
@@ -683,9 +704,306 @@ def build_codex_index():
     external = [{'path': entry['path'], 'enabled': entry['enabled'], 'status': 'unknown', 'reason': 'config-only-or-external-path'} for entry in config_entries.values() if entry['path'].lower() not in discovered_skill_paths]
     return {'schema_version': 3, 'default_agent': 'codex', 'updated_at': dt.datetime.now(dt.timezone.utc).isoformat(), 'skills': entries, 'codex_config_external': external}
 
+def dsh_preset_state():
+    state = {
+        'active_preset': None,
+        'settings_path': str(dsh_settings_path),
+        'preset_path': None,
+        'provider_enabled': False,
+        'consumer': 'unknown',
+        'include_default_roots': True,
+        'custom_dirs': [],
+        'watch': None,
+        'evidence': [],
+    }
+    if dsh_settings_path.is_file():
+        state['evidence'].append(f"settings:{dsh_settings_path}")
+        try:
+            raw = dsh_settings_path.read_text(encoding='utf-8')
+        except Exception:
+            raw = ''
+        block = re.search(r'(?ms)^agent-presets:\s*\r?\n(.*?)(?=^[a-zA-Z0-9_.-]+:|\Z)', raw)
+        if block:
+            default = re.search(r'(?mi)^\s*default:\s*"?([^"\s#]+)', block.group(1))
+            if default:
+                state['active_preset'] = default.group(1).strip()
+    if os.environ.get('SKILL_MANAGER_DSH_PRESET'):
+        state['active_preset'] = os.environ.get('SKILL_MANAGER_DSH_PRESET')
+    if not state['active_preset']:
+        state['evidence'].append('no-active-preset')
+        return state
+    preset_file = dsh_home / '.agent-presets' / state['active_preset'] / 'agent.cordis.yml'
+    state['preset_path'] = str(preset_file)
+    if not preset_file.is_file():
+        state['evidence'].append('preset-file-missing')
+        return state
+    state['evidence'].append(f"preset:{preset_file}")
+    try:
+        raw = preset_file.read_text(encoding='utf-8')
+    except Exception:
+        raw = ''
+    if re.search(r'(?m)^\s*- id:\s*skill-filesystem\s*$|@deepseek-ai/dsh-skill-filesystem', raw):
+        state['provider_enabled'] = True
+    if re.search(r'(?m)^\s*- id:\s*tool-skill\s*$|@deepseek-ai/dsh-tool-skill', raw):
+        state['consumer'] = 'tool-skill'
+    elif re.search(r'(?m)^\s*- id:\s*skill-search\s*$', raw):
+        state['consumer'] = 'skill-search'
+    elif state['provider_enabled']:
+        state['consumer'] = 'none'
+    row = re.search(r'(?ms)^\s*- id:\s*skill-filesystem\s*(.*?)(?=^\s*- id:|\Z)', raw)
+    if row:
+        cfg = row.group(1)
+        idr = re.search(r'(?mi)^\s*includeDefaultRoots:\s*(true|false)', cfg)
+        if idr:
+            state['include_default_roots'] = idr.group(1).lower() == 'true'
+        watch = re.search(r'(?mi)^\s*watch:\s*(true|false)', cfg)
+        if watch:
+            state['watch'] = watch.group(1).lower() == 'true'
+        lst = re.search(r'(?ms)customSkillDirs:\s*(.*?)(?=^\S|\Z)', cfg)
+        if lst:
+            body = lst.group(1)
+            inline = re.match(r'^\s*\[([^\]]*)\]', body)
+            if inline:
+                state['custom_dirs'] = [p.strip().strip("\"'") for p in inline.group(1).split(',') if p.strip().strip("\"'")]
+            else:
+                state['custom_dirs'] = [re.sub(r'^\s*-\s*', '', line).strip().strip("\"'") for line in body.splitlines() if re.match(r'^\s*-\s*', line)]
+    return state
+
+def dsh_project_root(start):
+    current = start.resolve()
+    while True:
+        if (current / '.git').exists():
+            return current
+        if current.parent == current:
+            return current
+        current = current.parent
+
+def dsh_root_records():
+    state = dsh_preset_state()
+    records = []
+    if state['include_default_roots']:
+        proot = dsh_project_root(dsh_cwd)
+        records.append({'path': proot / '.dsh' / 'skills', 'scope': 'project', 'class': 'project-dsh', 'rank': 100, 'platform_protected': 'false', 'write_policy': 'conditional', 'system_reserved': False})
+        records.append({'path': proot / '.agents' / 'skills', 'scope': 'project', 'class': 'project-agents', 'rank': 200, 'platform_protected': 'false', 'write_policy': 'conditional', 'system_reserved': False})
+    for custom in state['custom_dirs']:
+        records.append({'path': Path(custom).expanduser(), 'scope': 'custom', 'class': 'custom', 'rank': 300, 'platform_protected': 'unknown', 'write_policy': 'diagnostic-only', 'system_reserved': False})
+    if state['include_default_roots']:
+        records.append({'path': dsh_user_root, 'scope': 'user', 'class': 'user-dsh', 'rank': 400, 'platform_protected': 'false', 'write_policy': 'writable', 'system_reserved': True})
+        records.append({'path': dsh_shared_root, 'scope': 'user', 'class': 'user-agents', 'rank': 500, 'platform_protected': 'false', 'write_policy': 'writable/shared', 'system_reserved': False})
+    if dsh_bundled_dir:
+        records.append({'path': Path(dsh_bundled_dir).expanduser(), 'scope': 'deployment', 'class': 'bundled', 'rank': 600, 'platform_protected': 'unknown', 'write_policy': 'diagnostic-only', 'system_reserved': False})
+    return records
+
+def dsh_frontmatter_bool(frontmatter, key):
+    m = re.search(rf'(?mi)^{re.escape(key)}:\s*([^#\r\n]+)', frontmatter)
+    if not m:
+        return None
+    v = m.group(1).strip().strip("\"'").lower()
+    if v in ('true', 'yes', 'on', '1'):
+        return True
+    if v in ('false', 'no', 'off', '0'):
+        return False
+    return None
+
+def build_dsh_index():
+    state = dsh_preset_state()
+    grouped = {}
+    for root_idx, root_info in enumerate(dsh_root_records()):
+        root_path = root_info['path']
+        if not root_path.is_dir():
+            continue
+        try:
+            children = sorted(root_path.iterdir())
+        except Exception:
+            continue
+        for child in children:
+            if root_info['system_reserved'] and child.name == '.system':
+                continue
+            skill_file = None
+            directory = None
+            if child.is_dir():
+                candidate = child / 'SKILL.md'
+                if candidate.is_file():
+                    skill_file, directory = candidate, child
+            elif child.name.endswith('.md'):
+                skill_file, directory = child, root_path
+            if skill_file is None:
+                continue
+            try:
+                raw = skill_file.read_text(encoding='utf-8')
+            except Exception:
+                raw = ''
+            match = re.search(r'(?ms)^---\s*\r?\n(.*?)\r?\n---', raw)
+            frontmatter = match.group(1) if match else ''
+            declared = extract_frontmatter_field(frontmatter, 'name')
+            dir_name = Path(skill_file).stem if directory == root_path else skill_file.parent.name
+            name = declared or dir_name
+            desc = extract_frontmatter_field(frontmatter, 'description')
+            valid_name = re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*', name) is not None
+            has_legacy = re.search(r'(?mi)^(disableModelInvocation|modelInvocable|userInvocable)\s*:', frontmatter) is not None
+            dmi = dsh_frontmatter_bool(frontmatter, 'disable-model-invocation')
+            ui = dsh_frontmatter_bool(frontmatter, 'user-invocable')
+            bad_dmi = re.search(r'(?mi)^disable-model-invocation\s*:', frontmatter) is not None and dmi is None
+            bad_ui = re.search(r'(?mi)^user-invocable\s*:', frontmatter) is not None and ui is None
+            invalid_invocation = has_legacy or bad_dmi or bad_ui
+            dsh_valid = bool(valid_name) and bool(desc) and not invalid_invocation
+            model_invocable = True if dmi is None else not dmi
+            user_invocable = True if ui is None else ui
+            category = infer_category(extract_frontmatter_field(frontmatter, 'category'), name, desc, derive_keywords(name, desc))
+            caps = get_top_capabilities(frontmatter, name, desc, category)
+            variant = {
+                'path': str(directory),
+                'skill_path': str(skill_file.resolve()),
+                'scope': root_info['scope'],
+                'class': root_info['class'],
+                'rank': root_info['rank'],
+                'protected': False,
+                'platform_protected': root_info['platform_protected'],
+                'enabled': True,
+                'write_policy': root_info['write_policy'],
+                'model_invocable': model_invocable,
+                'user_invocable': user_invocable,
+                'dsh_valid': dsh_valid,
+                'description': desc,
+                'category': category,
+                'capabilities': caps,
+                'frontmatter': frontmatter,
+                'sha256': hashlib.sha256(raw.encode('utf-8')).hexdigest(),
+                'root_order': root_idx,
+            }
+            grouped.setdefault(name, []).append(variant)
+
+    consumer = state['consumer']
+    provider = state['provider_enabled']
+    entries = []
+    for name in sorted(grouped):
+        variants = sorted(grouped[name], key=lambda v: (v['rank'], v['root_order'], v['path']))
+        valid_variants = [v for v in variants if v['dsh_valid']]
+        winner = valid_variants[0] if valid_variants else None
+        discoverable = bool(valid_variants)
+        eligible = winner is not None and winner['model_invocable']
+        duplicate = len(valid_variants) > 1
+        frontmatters = list(dict.fromkeys(v['frontmatter'] for v in variants))
+        descriptions = list(dict.fromkeys(v['description'] for v in valid_variants if v['description']))
+        categories = list(dict.fromkeys(v['category'] for v in variants))
+        capabilities = list(dict.fromkeys(cap for v in variants for cap in v['capabilities']))
+
+        visible = False
+        conditional = False
+        visibility_reason = ''
+        if not provider:
+            visibility_reason = 'provider-not-enabled'
+            conditional = True
+        elif not discoverable:
+            visibility_reason = 'not-discoverable-by-dsh'
+        elif not eligible:
+            visibility_reason = 'not-model-invocable'
+        elif consumer in ('tool-skill', 'skill-search'):
+            visible = True
+            visibility_reason = 'multiple-discovery-roots; within-layer-predicted-winner' if duplicate else f"discovered-in-{winner['scope']}-root"
+        elif consumer == 'none':
+            visibility_reason = 'no-catalog-consumer-mounted'
+            conditional = True
+        else:
+            visible = eligible
+            visibility_reason = 'consumer-unknown'
+            conditional = True
+
+        paths = [{key: variant[key] for key in ('path', 'skill_path', 'scope', 'class', 'rank', 'protected', 'platform_protected', 'enabled', 'write_policy', 'model_invocable', 'user_invocable', 'dsh_valid')} for variant in variants]
+        predicted_winner = {'path': winner['path'], 'scope': winner['scope'], 'class': winner['class'], 'rank': winner['rank']} if winner else None
+        # confirmed_visible stays None: the session catalog of another DSH process
+        # is not observable from disk, so catalog visibility is inferred, not confirmed.
+        confirmed_visible = None
+        platform_protected = 'unknown' if any(v['platform_protected'] == 'unknown' for v in variants) else 'false'
+        agents = {
+            'claude': {'visible': False, 'path': None, 'reason': 'not installed for claude'},
+            'antigravity': {'visible': False, 'path': None, 'reason': 'not installed for antigravity'},
+            'codex': {'visible': False, 'path': None, 'reason': 'not installed for codex'},
+            'deepseek-harness': {
+                'visible': bool(visible),
+                'discoverable': discoverable,
+                'eligible': eligible,
+                'expected_visible': bool(visible),
+                'confirmed_visible': confirmed_visible,
+                'visibility_confidence': 'confirmed' if confirmed_visible is not None else 'inferred',
+                'visibility_status': 'confirmed' if confirmed_visible is not None else 'expected',
+                'invoked': None,
+                'conditional': conditional,
+                'consumer': consumer,
+                'reason': visibility_reason,
+                'paths': paths,
+                'scopes': list(dict.fromkeys(v['scope'] for v in variants)),
+                'ranks': list(dict.fromkeys(v['rank'] for v in variants)),
+                'providers': ['filesystem'],
+                'duplicate': duplicate,
+                'precedence': 'within-layer-rank' if duplicate else None,
+                'metadata_conflict': len(frontmatters) > 1,
+                'predicted_winner': predicted_winner,
+                'winner_confidence': 'single-candidate' if len(valid_variants) <= 1 else 'within-layer-only',
+                'winner_basis': 'filesystem-rank-root-order' if winner is not None else None,
+                'runtime_winner': None,
+                'invocation': {'model_invocable': winner['model_invocable'] if winner else True, 'user_invocable': winner['user_invocable'] if winner else True},
+                'protected': False,
+                'platform_protected': platform_protected,
+                'enabled': True,
+                'variants': variants,
+            },
+        }
+        entries.append({
+            'name': name,
+            'install_name': name,
+            'description': ' | '.join(descriptions),
+            'capabilities': capabilities,
+            'category': categories[0] if len(categories) == 1 else 'other',
+            'source': 'deepseek-harness-discovery',
+            'provenance': 'filesystem',
+            'source_path': paths[0]['path'] if paths else None,
+            'link_path': '',
+            'discovered_at': dt.datetime.now(dt.timezone.utc).isoformat(),
+            'installed_at': None,
+            'commit': None,
+            'sha256': None,
+            'status': 'ok' if discoverable else 'broken',
+            'health': 'ok' if discoverable else 'broken',
+            'agents': agents,
+        })
+
+    reserved = [str(dsh_user_system_root)] if state['include_default_roots'] else []
+    dsh_preset = {
+        'active_preset': state['active_preset'],
+        'settings_path': state['settings_path'],
+        'preset_path': state['preset_path'],
+        'provider_enabled': state['provider_enabled'],
+        'consumer': state['consumer'],
+        'include_default_roots': state['include_default_roots'],
+        'custom_dirs': list(state['custom_dirs']),
+        'watch': state['watch'],
+        'evidence': list(state['evidence']),
+    }
+    physical_skill_entries = sum(len(e['agents']['deepseek-harness']['paths']) for e in entries)
+    duplicate_names = sum(1 for e in entries if e['agents']['deepseek-harness']['duplicate'])
+    duplicate_variants = sum(len(e['agents']['deepseek-harness']['paths']) for e in entries if e['agents']['deepseek-harness']['duplicate'])
+    duplicate_candidate_variants = sum(sum(1 for p in e['agents']['deepseek-harness']['paths'] if p['dsh_valid']) for e in entries if e['agents']['deepseek-harness']['duplicate'])
+    metadata_conflicts = sum(1 for e in entries if e['agents']['deepseek-harness']['metadata_conflict'])
+    predicted_winners = sum(1 for e in entries if e['agents']['deepseek-harness']['predicted_winner'] is not None)
+    confirmed_runtime_winners = sum(1 for e in entries if e['agents']['deepseek-harness']['runtime_winner'] is not None)
+    dsh_duplicate_summary = {
+        'physical_skill_entries': physical_skill_entries,
+        'unique_skill_names': len(entries),
+        'duplicate_names': duplicate_names,
+        'duplicate_variants': duplicate_variants,
+        'duplicate_candidate_variants': duplicate_candidate_variants,
+        'metadata_conflicts': metadata_conflicts,
+        'predicted_winners': predicted_winners,
+        'confirmed_runtime_winners': confirmed_runtime_winners,
+    }
+    return {'schema_version': 3, 'default_agent': 'deepseek-harness', 'updated_at': dt.datetime.now(dt.timezone.utc).isoformat(), 'skills': entries, 'dsh_preset': dsh_preset, 'dsh_reserved_namespace': reserved, 'dsh_duplicate_summary': dsh_duplicate_summary}
+
 def build_index():
     if selected_agent == 'codex':
         return build_codex_index()
+    if selected_agent == 'deepseek-harness':
+        return build_dsh_index()
     old_index = read_old_index()
     old_map = {}
     if old_index and isinstance(old_index.get("skills"), list):
@@ -760,7 +1078,8 @@ def build_index():
                     "agents": {
                         "claude": {"visible": False, "path": None, "reason": "missing"},
                         "codex": {"visible": False, "path": None, "reason": "not installed for codex"},
-                        "antigravity": {"visible": False, "path": None, "reason": "missing"}
+                        "antigravity": {"visible": False, "path": None, "reason": "missing"},
+                        "deepseek-harness": {"visible": False, "path": None, "reason": "not installed for deepseek-harness"}
                     },
                 }
                 entries.append(missing_entry)
@@ -852,6 +1171,12 @@ def migrate_index(data):
                 "visible": False,
                 "path": None,
                 "reason": "not installed for antigravity"
+            }
+        if "deepseek-harness" not in raw_agents or not isinstance(raw_agents["deepseek-harness"], dict):
+            raw_agents["deepseek-harness"] = {
+                "visible": False,
+                "path": None,
+                "reason": "not installed for deepseek-harness"
             }
         e["agents"] = raw_agents
         migrated_skills.append(e)
@@ -1243,6 +1568,45 @@ def doctor_global(index_data):
                 print(f"    - {path['path']} [{path['scope']}/{path['class']}]")
             print('    Codex precedence is undocumented; skill-manager will not choose a winner.')
         return
+    elif selected_agent == "deepseek-harness":
+        state = dsh_preset_state()
+        duplicates = [s for s in target_skills if s.get('agents', {}).get('deepseek-harness', {}).get('duplicate')]
+        cli_resolved = bool(os.environ.get('SKILL_MANAGER_DSH_CLI_PATH') or shutil.which('dsh'))
+        print(f"doctor: scanned {scanned_count} skills for agent 'deepseek-harness'")
+        print(f"  CLI resolved: {cli_resolved}")
+        print('  CLI executable test: not-run')
+        print(f"  DSH_HOME: {dsh_home}")
+        print(f"  user root: {dsh_user_root}")
+        print(f"  shared root: {dsh_shared_root}")
+        if dsh_bundled_dir:
+            print(f"  bundled root: {dsh_bundled_dir} (diagnostic-only)")
+        print(f"  provider enabled: {state['provider_enabled']}")
+        if state['consumer'] == 'none':
+            print('  consumer: none (skills discoverable but not catalog-visible)')
+        elif state['consumer'] == 'unknown':
+            print('  consumer: unknown (catalog visibility not confirmable)')
+        else:
+            print(f"  consumer: {state['consumer']}")
+        print('  catalog visibility: expected (inferred from preset composition; not confirmed from a live session)')
+        if state['watch'] is not None:
+            if state['watch']:
+                print('  watch: enabled (no restart needed; skill-manager does not verify the watcher is running)')
+            else:
+                print('  watch: disabled - session catalog may not refresh automatically; a restart may be needed')
+        else:
+            print('  watch: not specified (DSH default is enabled; no restart recommended)')
+        if state['include_default_roots']:
+            print(f"  reserved .system namespace: {dsh_user_system_root} (skipped; not a system-skill root; manager write policy: refuse)")
+        print(f"  healthy: {healthy_count}")
+        for entry in duplicates:
+            print(f"  ⚠ Duplicate DeepSeek Harness Skill name: {entry['name']}")
+            for path in entry['agents']['deepseek-harness']['paths']:
+                print(f"    - {path['path']} [{path['scope']}/{path['class']} rank={path['rank']} write_policy={path['write_policy']}]")
+            winner = entry['agents']['deepseek-harness'].get('predicted_winner')
+            if winner:
+                print(f"    predicted within-layer winner: {winner['path']} (rank {winner['rank']}; basis: filesystem-rank-root-order)")
+            print('    Within-layer DSH rule (rank asc -> root order -> name order, first wins) is verified; cross-layer shadowing is not observable from disk; skill-manager does not claim a runtime winner.')
+        return
     elif selected_agent == "antigravity":
         cli_detected = (shutil.which("antigravity") is not None or shutil.which("agy") is not None)
         skills_detected = antigravity_link_dir.is_dir()
@@ -1595,6 +1959,18 @@ def fix_skill(entry, is_dry_run, confirm_yes):
             raise SystemExit('Refusing to modify Codex Skill outside the single writable user root.')
         source_disk = Path(writable[0]['path'])
         link_disk = source_disk
+    elif selected_agent == 'deepseek-harness':
+        dsh_info = entry.get('agents', {}).get('deepseek-harness', {})
+        dsh_paths = dsh_info.get('paths', [])
+        if any(path.get('write_policy') == 'diagnostic-only' for path in dsh_paths):
+            raise SystemExit('Refusing to modify a diagnostic-only DeepSeek Harness skill (bundled or custom root).')
+        writable = [path for path in dsh_paths if path.get('scope') == 'user' and path.get('class') == 'user-dsh' and path.get('write_policy') == 'writable']
+        if len(writable) != 1:
+            raise SystemExit('Refusing to modify DeepSeek Harness Skill outside the single writable user-dsh root.')
+        if not writable[0].get('dsh_valid'):
+            raise SystemExit('Refusing to modify a DeepSeek Harness skill that DSH would reject (invalid name or legacy invocation keys).')
+        source_disk = Path(writable[0]['path'])
+        link_disk = source_disk
     else:
         source_disk = skills_dir / dir_name
         link_disk = link_dir / dir_name
@@ -1681,7 +2057,7 @@ def fix_skill(entry, is_dry_run, confirm_yes):
             print(f"Skipped {entry['name']}.")
             return
 
-    backup_dir = (codex_home / 'skill-manager' / 'backups') if selected_agent == 'codex' else (skills_dir / '.backups')
+    backup_dir = (dsh_home / 'skill-manager' / 'backups') if selected_agent == 'deepseek-harness' else ((codex_home / 'skill-manager' / 'backups') if selected_agent == 'codex' else (skills_dir / '.backups'))
     backup_dir.mkdir(parents=True, exist_ok=True)
     ts = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     backup_file = backup_dir / f"{entry['name']}-{ts}-SKILL.md"
@@ -1783,7 +2159,7 @@ try:
                 if key == "capabilities":
                     val = ", ".join(entry.get("capabilities", []))
                 print(f"{key}: {val}")
-            for ag in ("claude", "codex", "antigravity"):
+            for ag in ("claude", "codex", "antigravity", "deepseek-harness"):
                 ag_info = entry.get("agents", {}).get(ag, {})
                 print(f"agents.{ag}.visible: {ag_info.get('visible', False)}")
             print(f"usage.status: {entry.get('usage', {}).get('status', 'unknown')}")

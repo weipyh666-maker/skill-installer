@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # adapters/_base.sh - Base multi-agent adapter specifications
 
-SUPPORTED_AGENTS=("claude" "codex" "antigravity")
+SUPPORTED_AGENTS=("claude" "codex" "antigravity" "deepseek-harness")
 
 resolve_agent() {
     local requested="${1:-}"
