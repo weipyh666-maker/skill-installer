@@ -13,7 +13,7 @@ DeepSeek Harness discovers Skills from multiple roots scanned by its `skill-file
 
 The project root is the nearest ancestor containing `.git`; without one the working directory itself is used. Directory bundles (`<name>/SKILL.md`) and flat Markdown files (`<name>.md`) are scanned as direct children of each root; nested `**/SKILL.md` discovery is not supported. The user-dsh root skips its reserved `.system` namespace, which is **not** a system-skill root and is never scanned or indexed.
 
-**Status: Experimental.** DeepSeek Harness is a pre-release (`0.1.0-rc.x`) platform whose on-disk formats may change; this adapter records `detected_harness_version`-style facts and never claims "Supported".
+**Status: Experimental.** Tested against DeepSeek Harness `0.1.0-rc.5`. DeepSeek Harness is a pre-release (`0.1.0-rc.x`) platform whose on-disk formats may change; this adapter records preset composition evidence (`dsh_preset.evidence`) rather than a harness version string, and never claims "Supported".
 
 ## Verified semantics implemented here
 
